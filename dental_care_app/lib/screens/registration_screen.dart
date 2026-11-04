@@ -526,34 +526,23 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     final qDigits = _phoneController.text.replaceAll(RegExp(r'\D'), '');
     final currentOp = _opController.text.trim().toLowerCase();
 
-    // Look up existing patient: first by current OP number, then by phone digits (10 digits) + name match
+    // Match name and phone before considering the OP currently in the form.
     Patient existing = widget.storage.patients.firstWhere(
-      (p) => currentOp.isNotEmpty && p.opNumber.trim().toLowerCase() == currentOp,
-      orElse: () {
-        if (qDigits.length >= 10) {
-          final phoneMatches = widget.storage.patients.where((p) {
-            final pDigits = p.phone.replaceAll(RegExp(r'\D'), '');
-            return pDigits.isNotEmpty &&
-                (pDigits == qDigits || (pDigits.length >= 10 && qDigits.length >= 10 && pDigits.endsWith(qDigits.substring(qDigits.length - 10))));
-          }).toList();
-          if (phoneMatches.isNotEmpty) {
-            final nameMatches = phoneMatches.where(
-              (p) {
-                final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-                return pName == cleanName ||
-                    pName.contains(cleanName) ||
-                    cleanName.contains(pName) ||
-                    (pName.split(' ').first == cleanName.split(' ').first);
-              },
-            ).toList();
-            if (nameMatches.isNotEmpty) {
-              return nameMatches.first;
-            }
-          }
-        }
-        return Patient(id: '', opNumber: '', name: '', phone: '', gender: '', doctor: '', registrationDate: '');
+      (p) {
+        final pDigits = p.phone.replaceAll(RegExp(r'\D'), '');
+        final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+        final phoneMatch = pDigits.isNotEmpty && qDigits.length >= 10 &&
+            (pDigits == qDigits || (pDigits.length >= 10 && pDigits.endsWith(qDigits.substring(qDigits.length - 10))));
+        return phoneMatch && pName.isNotEmpty && cleanName.isNotEmpty && pName == cleanName;
       },
+      orElse: () => Patient(id: '', opNumber: '', name: '', phone: '', gender: '', doctor: '', registrationDate: ''),
     );
+    if (existing.id.isEmpty && currentOp.isNotEmpty) {
+      existing = widget.storage.patients.firstWhere(
+        (p) => p.opNumber.trim().toLowerCase() == currentOp,
+        orElse: () => Patient(id: '', opNumber: '', name: '', phone: '', gender: '', doctor: '', registrationDate: ''),
+      );
+    }
 
     String opNumber = _opController.text.trim();
     if (existing.id.isNotEmpty) {

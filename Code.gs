@@ -499,22 +499,12 @@ function handlePatientRegistration(ss, data) {
 
         if (!rowOp) continue;
 
-        // 1. If explicit OP number was submitted and matches this row, keep it
-        if (inputOp && rowOp && inputOp.toLowerCase() === rowOp.toLowerCase()) {
+        // Match the registered identity first so a stale submitted OP cannot change it.
+        var phoneMatches = inputPhoneDigits && rowPhoneDigits && (inputPhoneDigits === rowPhoneDigits || (inputPhoneDigits.length >= 10 && rowPhoneDigits.length >= 10 && inputPhoneDigits.slice(-10) === rowPhoneDigits.slice(-10)));
+        var nameMatches = inputName && rowName && inputName === rowName;
+        if (phoneMatches && nameMatches) {
           existingOpNumber = rowOp;
           break;
-        }
-
-        // 2. Phone match (10 digits) + Name match
-        var phoneMatches = inputPhoneDigits && rowPhoneDigits && (inputPhoneDigits === rowPhoneDigits || (inputPhoneDigits.length >= 10 && rowPhoneDigits.length >= 10 && inputPhoneDigits.slice(-10) === rowPhoneDigits.slice(-10)));
-        if (phoneMatches) {
-          var nameMatches = inputName && rowName && ((inputName === rowName) ||
-                            (inputName.indexOf(rowName) !== -1 || rowName.indexOf(inputName) !== -1) ||
-                            (inputName.split(' ')[0] === rowName.split(' ')[0]));
-          if (nameMatches) {
-            existingOpNumber = rowOp;
-            break;
-          }
         }
       }
     }
