@@ -37,30 +37,17 @@ class StorageService extends ChangeNotifier {
   static bool isDummyPatient(String name, String phone, String id) {
     final n = name.trim().toLowerCase();
     final p = phone.trim();
-    return n == 'rajesh kumar' || n == 'ramesh kumar' || n == 'test patient' ||
-        n == 'gokul' || n == 'manu' || n == 'anju' || n == 'albin' ||
-        n == 'deepak' || n == 'sanju' || n == 'sam' || n == 'neha' || n == 'saran' ||
-        p == '9845012345' || p == '9876543210' || p == '9998887776' ||
-        p == '133564456156' || id == 'PAT-133564456156' || id == 'PAT-1001' || id == 'PAT-9876543210';
+    return n == 'test patient' || p == '133564456156' || id == 'PAT-133564456156';
   }
 
   static bool isDummyAppointment(String id, String name, String phone) {
     final n = name.trim().toLowerCase();
-    final p = phone.trim();
-    return n == 'rajesh kumar' || n == 'ramesh kumar' || n == 'test patient' ||
-        n == 'gokul' || n == 'manu' || n == 'anju' || n == 'albin' ||
-        n == 'deepak' || n == 'sanju' || n == 'sam' || n == 'neha' || n == 'saran' ||
-        p == '9845012345' || p == '9876543210' || p == '9998887776' ||
-        id.contains('20261024-00') || id == 'APT-20261014-4821' || id == 'APT-20261013-2755';
+    return n == 'test patient' || id.contains('DUMMY');
   }
 
   static bool isDummyInvoice(String id, String name) {
     final n = name.trim().toLowerCase();
-    return n == 'rajesh kumar' || n == 'ramesh kumar' || n == 'test patient' ||
-        n == 'gokul' || n == 'manu' || n == 'anju' || n == 'albin' ||
-        n == 'deepak' || n == 'sanju' || n == 'sam' || n == 'neha' || n == 'saran' ||
-        id == 'INV-2026-001' || id == 'INV-20261013-3604' || id == 'INV-20261013-3503' ||
-        id == 'INV-20261013-2386' || id == 'INV-20261014-9713';
+    return n == 'test patient' || id.contains('DUMMY');
   }
 
   Future<void> initialize() async {
@@ -185,14 +172,12 @@ class StorageService extends ChangeNotifier {
         }
       }
 
-      // Sync Invoices from Google Sheet
-      final localCreatedInv = _invoices.where((i) => i.id.startsWith('INV-LOCAL-')).toList();
+      // Sync Invoices from Google Sheet while PRESERVING all locally created invoices
+      final localCreatedInv = _invoices.where((i) => !cloudInvoices.any((ci) => ci.id == i.id)).toList();
       _invoices.clear();
       _invoices.addAll(cloudInvoices);
       for (final loc in localCreatedInv) {
-        if (!_invoices.any((i) => i.id == loc.id)) {
-          _invoices.insert(0, loc);
-        }
+        _invoices.insert(0, loc);
       }
 
       // Sync Inventory from Google Sheet
@@ -231,18 +216,16 @@ class StorageService extends ChangeNotifier {
 
       final phoneMatch = pDigits.isNotEmpty && cDigits.isNotEmpty &&
           (pDigits == cDigits || (pDigits.length >= 10 && cDigits.length >= 10 && pDigits.endsWith(cDigits.substring(cDigits.length - 10))));
+      final nameMatch = pName.isNotEmpty && cName.isNotEmpty && pName == cName;
 
-      if (phoneMatch) {
-        final nameMatch = pName.isNotEmpty && cName.isNotEmpty &&
-            (pName == cName || pName.contains(cName) || cName.contains(pName) || pName.split(' ').first == cName.split(' ').first);
-        return nameMatch;
-      }
-      return false;
+      return phoneMatch && nameMatch;
     });
     if (idx >= 0) {
       final existing = _patients[idx];
-      // CRITICAL: Always preserve the already registered patient's existing OP number and do not change other patients!
-      final effectiveOp = existing.opNumber.isNotEmpty ? existing.opNumber : (patient.opNumber.isNotEmpty ? patient.opNumber : 'OP-${existing.id}');
+      // Keep the established OP for an existing patient.
+      final effectiveOp = existing.opNumber.isNotEmpty
+          ? existing.opNumber
+          : (patient.opNumber.isNotEmpty ? patient.opNumber : 'OP-${existing.id}');
       _patients[idx] = Patient(
         id: existing.id.isNotEmpty ? existing.id : patient.id,
         opNumber: effectiveOp,
@@ -279,8 +262,10 @@ class StorageService extends ChangeNotifier {
     await _persist();
     notifyListeners();
 
-    // Push to Google Cloud in background
-    ApiService.syncAppointmentOnline(apt);
+    // Push to Google Cloud in background and sync
+    ApiService.syncAppointmentOnline(apt).then((ok) {
+      if (ok) syncWithCloud();
+    });
   }
 
   Future<void> updateAppointmentStatus(String id, String newStatus) async {
@@ -290,8 +275,10 @@ class StorageService extends ChangeNotifier {
       await _persist();
       notifyListeners();
 
-      // Push update to Google Cloud
-      ApiService.updateAppointmentStatusOnline(apt.id, newStatus);
+      // Push update to Google Cloud and sync
+      ApiService.updateAppointmentStatusOnline(apt.id, newStatus).then((ok) {
+        if (ok) syncWithCloud();
+      });
     }
   }
 
@@ -304,26 +291,38 @@ class StorageService extends ChangeNotifier {
       await _persist();
       notifyListeners();
 
-      // Push reschedule to Google Cloud
-      ApiService.rescheduleAppointmentOnline(apt.id, apt.phone, newDate, newTime, doctor, notes);
+      // Push reschedule to Google Cloud and sync
+      ApiService.rescheduleAppointmentOnline(apt.id, apt.phone, newDate, newTime, doctor, notes).then((ok) {
+        if (ok) syncWithCloud();
+      });
     }
   }
 
   Future<void> saveInvoice(Invoice invoice) async {
-    _invoices.insert(0, invoice);
+    final idx = _invoices.indexWhere((i) => i.id == invoice.id);
+    if (idx >= 0) {
+      _invoices[idx] = invoice;
+    } else {
+      _invoices.insert(0, invoice);
+    }
 
     // Also update or link to existing patient
-    final pIdx = _patients.indexWhere((p) => p.phone == invoice.phone || p.name.toLowerCase() == invoice.patientName.toLowerCase());
+    final pIdx = _patients.indexWhere((p) =>
+        (invoice.phone.isNotEmpty && p.phone == invoice.phone) ||
+        (invoice.patientName.isNotEmpty && p.name.toLowerCase() == invoice.patientName.toLowerCase()));
     if (pIdx >= 0) {
-      _patients[pIdx].totalVisits += 1;
-      _patients[pIdx].totalBilled += invoice.totalAmount;
-      _patients[pIdx].visits.insert(0, VisitRecord(
-        date: invoice.date,
-        doctor: invoice.doctor,
-        notes: invoice.notes.isNotEmpty ? invoice.notes : 'Clinical consultation & billing',
-        invoiceId: invoice.id,
-        amount: invoice.totalAmount,
-      ));
+      final existingVisitIdx = _patients[pIdx].visits.indexWhere((v) => v.invoiceId == invoice.id);
+      if (existingVisitIdx < 0) {
+        _patients[pIdx].totalVisits += 1;
+        _patients[pIdx].totalBilled += invoice.totalAmount;
+        _patients[pIdx].visits.insert(0, VisitRecord(
+          date: invoice.date,
+          doctor: invoice.doctor,
+          notes: invoice.notes.isNotEmpty ? invoice.notes : (invoice.treatment.isNotEmpty ? invoice.treatment : 'Clinical consultation & billing'),
+          invoiceId: invoice.id,
+          amount: invoice.totalAmount,
+        ));
+      }
     }
 
     await _persist();

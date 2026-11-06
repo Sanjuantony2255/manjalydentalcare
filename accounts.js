@@ -563,11 +563,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (refreshAccountsBtn) refreshAccountsBtn.disabled = show;
     }
 
+    let _accountsMsgTimer = null;
     function showMessage(msg, type) {
         if (!accountsMessage) return;
         accountsMessage.textContent = msg;
         accountsMessage.className = `message-banner ${type === 'error' ? 'error' : 'success'}`;
         accountsMessage.style.display = 'block';
+        if (_accountsMsgTimer) clearTimeout(_accountsMsgTimer);
+        _accountsMsgTimer = setTimeout(() => {
+            if (accountsMessage) accountsMessage.style.display = 'none';
+        }, 4000);
     }
 
     function hideMessage() {

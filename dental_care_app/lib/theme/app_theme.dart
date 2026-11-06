@@ -109,6 +109,9 @@ class AppTheme {
         ),
         labelStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
       ),
+      snackBarTheme: const SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 }

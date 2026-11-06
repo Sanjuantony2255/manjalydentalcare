@@ -466,11 +466,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (refreshStockBtn) refreshStockBtn.disabled = show;
     }
 
+    let _pharmacyMsgTimer = null;
     function showMessage(msg, type) {
         if (!pharmacyMessage) return;
         pharmacyMessage.textContent = msg;
         pharmacyMessage.className = `message-banner ${type === 'error' ? 'error' : 'success'}`;
         pharmacyMessage.style.display = 'block';
+        if (_pharmacyMsgTimer) clearTimeout(_pharmacyMsgTimer);
+        _pharmacyMsgTimer = setTimeout(() => {
+            if (pharmacyMessage) pharmacyMessage.style.display = 'none';
+        }, 4000);
     }
 
     function hideMessage() {

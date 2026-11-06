@@ -330,6 +330,7 @@ function getInvoicesSheet(ss) {
     sheet = ss.insertSheet("Invoices");
     var headers = [
       'Invoice No',
+      'OP Number',
       'Date & Time',
       'Patient Name',
       'Phone',
@@ -344,6 +345,13 @@ function getInvoicesSheet(ss) {
     sheet.appendRow(headers);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
     sheet.setFrozenRows(1);
+  } else {
+    var lastCol = Math.max(sheet.getLastColumn(), 1);
+    var existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var hasOp = existingHeaders.some(function(h) { return (h || '').toString().toLowerCase().indexOf('op') !== -1; });
+    if (!hasOp) {
+      sheet.getRange(1, lastCol + 1).setValue('OP Number').setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+    }
   }
   return sheet;
 }
@@ -510,12 +518,14 @@ function handlePatientRegistration(ss, data) {
     }
   }
 
-  // Already registered patients ALWAYS keep their already given OP number!
+  // OP Number Resolution: preserve the registered OP for a name and phone match.
   if (existingOpNumber) {
     data.opNumber = existingOpNumber;
-  } else if (inputOp && inputOp.indexOf('OP-') === 0) {
+  } else if (inputOp && inputOp.length > 0) {
+    // Keep an explicitly entered OP when no matching registered identity was found.
     data.opNumber = inputOp;
   } else if (!data.opNumber || data.opNumber.toString().trim() === '') {
+    // Auto-generate standard clinic OP number.
     var randomCode = Math.floor(1000 + Math.random() * 9000);
     var pfx = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyMM");
     data.opNumber = 'OP-' + pfx + '-' + randomCode;
@@ -571,7 +581,7 @@ function handlePatientRegistration(ss, data) {
   // 1. Append to Visits Sheet dynamically aligned with headers
   var visitRecord = {
     timestamp: timestamp,
-    fullName: data.fullName || '',
+    fullName: data.fullName || data.name || '',
     phone: data.phone || '',
     address: data.address || data.email || '',
     email: data.address || data.email || '',
@@ -582,7 +592,9 @@ function handlePatientRegistration(ss, data) {
     medicalHistory: data.medicalHistory || '',
     diseaseHistory: data.drugAllergies || data.diseaseHistory || '',
     drugAllergies: data.drugAllergies || data.diseaseHistory || '',
-    lastVisitDate: data.lastVisitDate || '',
+    treatment: data.treatment || data.diseaseHistory || '',
+    treatmentCharge: parseFloat(data.treatmentCharge) || 0,
+    lastVisitDate: data.lastVisitDate || data.date || timestamp,
     doctorConsulted: docName,
     consultationCharge: consultation,
     xrayCharge: xray,
@@ -599,22 +611,60 @@ function handlePatientRegistration(ss, data) {
     'Payment Mode', 'Invoice No', 'Google Drive Invoice URL'
   ]);
 
-  // 2. ALWAYS record in dedicated "Invoices" tab if any charges or invoice generated
+  // If there is also a distinct Patients sheet separate from visitsSheet, keep it in sync
+  if (pSheet && pSheet !== visitsSheet) {
+    try {
+      appendVisitRowMapped(pSheet, visitRecord, [
+        'Timestamp', 'OP Number', 'Full Name', 'Phone', 'Email', 'DOB', 'Gender', 
+        'Medical History', 'Disease History', 'Last Visit Date', 'Doctor Consulted',
+        'Consultation Charge', 'X-Ray Charge', 'Pharmacy Charge', 'Total Amount', 
+        'Payment Mode', 'Invoice No', 'Google Drive Invoice URL'
+      ]);
+    } catch (pErr) {
+      Logger.log("Patients sheet sync notice: " + pErr.toString());
+    }
+  }
+
+  // 2. ALWAYS record in dedicated "Invoices" tab dynamically aligned with headers
   try {
     var invoicesSheet = getInvoicesSheet(ss);
-    invoicesSheet.appendRow([
-      invoiceNo,
-      timestamp,
-      data.fullName || '',
-      phoneStr,
-      data.doctorConsulted || '',
-      consultation.toFixed(2),
-      xray.toFixed(2),
-      pharmacy.toFixed(2),
-      total.toFixed(2),
-      paymentMode,
-      driveResult.fileUrl || ''
-    ]);
+    var invHeaderVals = invoicesSheet.getRange(1, 1, 1, Math.max(invoicesSheet.getLastColumn(), 1)).getValues()[0];
+    var invRow = [];
+    for (var ic = 0; ic < invHeaderVals.length; ic++) {
+      var ih = (invHeaderVals[ic] || '').toString().toLowerCase().trim();
+      var ival = '';
+      if (ih.indexOf('invoice') !== -1 || ih.indexOf('bill') !== -1) ival = invoiceNo;
+      else if (ih.indexOf('op') !== -1) ival = data.opNumber || '';
+      else if (ih.indexOf('time') !== -1 || ih.indexOf('date') !== -1) ival = timestamp;
+      else if (ih.indexOf('name') !== -1 || ih.indexOf('patient') !== -1) ival = data.fullName || data.name || '';
+      else if (ih.indexOf('phone') !== -1 || ih.indexOf('mobile') !== -1) ival = phoneStr;
+      else if (ih.indexOf('doctor') !== -1) ival = docName || '';
+      else if (ih.indexOf('consult') !== -1) ival = consultation.toFixed(2);
+      else if (ih.indexOf('xray') !== -1 || ih.indexOf('x-ray') !== -1) ival = xray.toFixed(2);
+      else if (ih.indexOf('pharm') !== -1 || ih.indexOf('med') !== -1) ival = pharmacy.toFixed(2);
+      else if (ih.indexOf('treatment') !== -1) ival = (parseFloat(data.treatmentCharge) || 0).toFixed(2);
+      else if (ih.indexOf('total') !== -1 || ih.indexOf('amount') !== -1) ival = total.toFixed(2);
+      else if (ih.indexOf('payment') !== -1 || ih.indexOf('mode') !== -1) ival = paymentMode;
+      else if (ih.indexOf('drive') !== -1 || ih.indexOf('url') !== -1) ival = driveResult.fileUrl || '';
+      invRow.push(ival);
+    }
+    if (invRow.length === 0) {
+      invRow = [
+        invoiceNo,
+        data.opNumber || '',
+        timestamp,
+        data.fullName || data.name || '',
+        phoneStr,
+        docName || '',
+        consultation.toFixed(2),
+        xray.toFixed(2),
+        pharmacy.toFixed(2),
+        total.toFixed(2),
+        paymentMode,
+        driveResult.fileUrl || ''
+      ];
+    }
+    invoicesSheet.appendRow(invRow);
   } catch (invErr) {
     Logger.log("Invoices sheet logging notice: " + invErr.toString());
   }
@@ -1259,6 +1309,11 @@ function doGet(e) {
     // 8. Get Accounts & Financial Revenue
     if (action === 'getAccounts') {
       return handleGetAccounts(ss, e.parameter);
+    }
+
+    // 9. Register Patient (GET fallback)
+    if (action === 'registerPatient' || action === 'addPatient') {
+      return handlePatientRegistration(ss, e.parameter);
     }
 
     return createJsonResponse({ status: 'error', message: 'Invalid action parameter' });

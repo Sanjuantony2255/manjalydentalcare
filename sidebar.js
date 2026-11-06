@@ -129,7 +129,7 @@
                 : 'background:#dc2626;color:white;padding:0.75rem 1.25rem;border-radius:8px;font-weight:700;margin-top:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);animation:fadeIn 0.25s ease;';
             toast.textContent = msg;
             container.appendChild(toast);
-            setTimeout(() => { toast.remove(); }, 3500);
+            setTimeout(() => { toast.remove(); }, 4000);
         }
 
         function actuallySetRole(role) {

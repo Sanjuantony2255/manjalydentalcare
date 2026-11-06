@@ -114,11 +114,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (viewPatientModalOverlay) viewPatientModalOverlay.classList.remove('active');
     }
 
+    let _patientsNoticeTimer = null;
     function showPatientsNotice(text, type = 'info') {
         if (!patientsMessage) return;
         patientsMessage.textContent = text;
         patientsMessage.className = 'search-message ' + type;
         patientsMessage.style.display = 'block';
+        if (_patientsNoticeTimer) clearTimeout(_patientsNoticeTimer);
+        _patientsNoticeTimer = setTimeout(() => {
+            if (patientsMessage) patientsMessage.style.display = 'none';
+        }, 4000);
     }
 
     function normalizeDateStr(d) {
