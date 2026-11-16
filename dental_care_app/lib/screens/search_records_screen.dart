@@ -87,7 +87,7 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
     double xray = inv.xrayCharge;
     double pharm = inv.pharmacyCharge;
 
-    // 1. Try matching with patient visits
+    // 1. Try matching with patient visits by invoice ID
     final cleanInvId = InvoiceReceiptDialog.cleanBillNo(inv.id).toLowerCase();
     VisitRecord? matchedVisit;
     for (final v in p.visits) {
@@ -97,27 +97,31 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
         break;
       }
     }
-    if (matchedVisit == null) {
-      for (final v in p.visits) {
-        if (v.date.isNotEmpty && (v.date == inv.date || inv.date.contains(v.date) || v.date.contains(inv.date))) {
-          matchedVisit = v;
-          break;
-        }
-      }
+    // Only fall back to date if patient has exactly one visit to prevent visit collisions
+    if (matchedVisit == null && p.visits.length == 1) {
+      matchedVisit = p.visits.first;
     }
-    if (matchedVisit == null && p.visits.isNotEmpty) {
-      for (final v in p.visits) {
-        if (v.notes.isNotEmpty) {
-          matchedVisit = v;
-          break;
-        }
+
+    if (matchedVisit != null) {
+      if (consult <= 0 && matchedVisit.consultationCharge > 0) {
+        consult = matchedVisit.consultationCharge;
+      }
+      if (xray <= 0 && matchedVisit.xrayCharge > 0) {
+        xray = matchedVisit.xrayCharge;
+      }
+      if (pharm <= 0 && matchedVisit.pharmacyCharge > 0) {
+        pharm = matchedVisit.pharmacyCharge;
+      }
+      if (treatment.isEmpty && matchedVisit.notes.isNotEmpty) {
+        treatment = matchedVisit.notes;
+      }
+      if (tCharge <= 0 && matchedVisit.treatmentCharge > 0) {
+        tCharge = matchedVisit.treatmentCharge;
       }
     }
 
     if (treatment.isEmpty) {
-      if (matchedVisit != null && matchedVisit.notes.isNotEmpty) {
-        treatment = matchedVisit.notes;
-      } else if (p.diseaseHistory.isNotEmpty) {
+      if (p.diseaseHistory.isNotEmpty) {
         treatment = p.diseaseHistory;
       } else if (inv.notes.isNotEmpty) {
         treatment = inv.notes;
@@ -134,7 +138,9 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
     }
 
     if (treatment.isEmpty && (tCharge > 0 || inv.totalAmount > otherKnown)) {
-      treatment = 'Dental Treatment & Procedure';
+      treatment = (matchedVisit != null && matchedVisit.notes.isNotEmpty)
+          ? matchedVisit.notes
+          : (p.diseaseHistory.isNotEmpty ? p.diseaseHistory : 'Dental Treatment & Procedure');
     }
 
     final tNos = inv.treatmentNos > 0 ? inv.treatmentNos : 1;
@@ -165,7 +171,7 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
         .where((id) => id.isNotEmpty && id != 'inv-sheet')
         .toSet();
 
-    return widget.storage.invoices.where((inv) {
+    final list = widget.storage.invoices.where((inv) {
       final cleanInvId = InvoiceReceiptDialog.cleanBillNo(inv.id).toLowerCase();
       final idMatch = visitInvoiceIds.contains(cleanInvId);
       final invDigits = inv.phone.replaceAll(RegExp(r'\D'), '');
@@ -175,6 +181,10 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       final opMatch = pOp.isNotEmpty && inv.opNumber.trim().toLowerCase() == pOp;
       return idMatch || phoneMatch || nameMatch || opMatch;
     }).map((inv) => _enrichInvoiceWithPatient(inv, p)).toList();
+
+    // Sort descending by ID so latest invoice is first
+    list.sort((a, b) => b.id.compareTo(a.id));
+    return list;
   }
 
   Invoice _findOrCreateInvoiceForVisit(Patient p, VisitRecord v) {
@@ -188,27 +198,35 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       if (found.isNotEmpty) return _enrichInvoiceWithPatient(found.first, p);
     }
 
-    final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-    final match = widget.storage.invoices.where((i) =>
-      i.patientName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ') == pName &&
-      (i.date == v.date || i.date.contains(v.date) || v.date.contains(i.date))
-    );
-    if (match.isNotEmpty) return _enrichInvoiceWithPatient(match.first, p);
+    if (p.visits.length == 1) {
+      final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+      final match = widget.storage.invoices.where((i) =>
+        i.patientName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ') == pName &&
+        (i.date == v.date || i.date.contains(v.date) || v.date.contains(i.date))
+      );
+      if (match.isNotEmpty) return _enrichInvoiceWithPatient(match.first, p);
+    }
 
     final treatmentText = v.notes.isNotEmpty ? v.notes : (p.diseaseHistory.isNotEmpty ? p.diseaseHistory : 'Dental Treatment & Procedure');
+    final vConsult = v.consultationCharge;
+    final vXray = v.xrayCharge;
+    final vPharm = v.pharmacyCharge;
+    final other = vConsult + vXray + vPharm;
+    final tCharge = v.treatmentCharge > 0 ? v.treatmentCharge : (v.amount > other ? (v.amount - other) : v.amount);
+
     return Invoice(
       id: v.invoiceId.isNotEmpty ? v.invoiceId : 'INV-${v.date.replaceAll('/', '').replaceAll('-', '')}',
       patientName: p.name,
       phone: p.phone,
       doctor: v.doctor.isNotEmpty ? v.doctor : p.doctor,
       date: v.date,
-      consultationCharge: 0.0,
-      treatmentCharge: v.amount,
+      consultationCharge: vConsult,
+      treatmentCharge: tCharge,
       treatment: treatmentText,
       treatmentNos: 1,
-      treatmentRate: v.amount,
-      xrayCharge: 0.0,
-      pharmacyCharge: 0.0,
+      treatmentRate: tCharge,
+      xrayCharge: vXray,
+      pharmacyCharge: vPharm,
       totalAmount: v.amount,
       paymentMode: 'Cash',
       notes: v.notes,

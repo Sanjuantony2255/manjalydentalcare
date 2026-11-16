@@ -257,17 +257,22 @@ class ApiService {
                   final vPharm = (v['pharmacyCharge'] as num?)?.toDouble() ?? double.tryParse(v['pharmacyCharge']?.toString() ?? '') ?? 0.0;
                   final vPayMode = v['paymentMode']?.toString() ?? 'Cash';
 
+                  final otherSum = vConsult + vXray + vPharm;
+                  final vTreatCharge = vTot > otherSum ? (vTot - otherSum) : 0.0;
+
                   visits.add(VisitRecord(
                     date: vDate,
                     doctor: vDoc,
                     notes: vNotes,
                     invoiceId: vInvNo,
                     amount: vTot,
+                    consultationCharge: vConsult,
+                    xrayCharge: vXray,
+                    pharmacyCharge: vPharm,
+                    treatmentCharge: vTreatCharge,
                   ));
 
                   if (vInvNo.isNotEmpty && !vInvNo.toLowerCase().contains('sheet') && !isDummyInvoice(vInvNo, name)) {
-                    final otherSum = vConsult + vXray + vPharm;
-                    final vTreatCharge = vTot > otherSum ? (vTot - otherSum) : 0.0;
                     final visitInv = Invoice(
                       id: vInvNo,
                       patientName: name,

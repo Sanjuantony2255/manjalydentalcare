@@ -78,13 +78,23 @@ jobs:
             dental_care_app/build/app/outputs/flutter-apk/*.apk
           retention-days: 30
 
-      - name: 🚀 Create GitHub Release with APK
+      - name: 🚀 Release APK via GitHub CLI (with asset clobber)
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        run: |
+          TAG="${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}"
+          APK_FILE="../dist/Manjaly-Dental-Care-v1.0.0.apk"
+          echo "Releasing $APK_FILE under tag $TAG..."
+          gh release upload "$TAG" "$APK_FILE" --clobber || gh release create "$TAG" "$APK_FILE" --title "Release $TAG" --notes "🦷 Manjaly Dental Care - Android Release APK" --latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🚀 Create or Update GitHub Release with APK
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}
-          files: dist/Manjaly-Dental-Care-v1.0.0.apk
+          files: ../dist/Manjaly-Dental-Care-v1.0.0.apk
           name: Release ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}
           body: |
             ## 🦷 Manjaly Dental Care - Android Release
@@ -93,7 +103,7 @@ jobs:
             - Complete offline-first dental clinic management app (no backend required).
             - Patient Registration & Revisit consultation.
             - Appointments & Calendar portal with date filtering.
-            - Real-time billing & instant branded invoices.
+            - Real-time billing & instant branded invoices with treatments, consultation, and charges.
             - Accounts & Revenue analytics dashboard with category breakdown.
             - Pharmacy & dental stock management with low-stock alerts.
 
@@ -101,5 +111,6 @@ jobs:
             Download **`Manjaly-Dental-Care-v1.0.0.apk`** below and install it directly on any Android device (Android 5.0 Lollipop and above).
           draft: false
           prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

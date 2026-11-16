@@ -183,35 +183,36 @@ class StorageService extends ChangeNotifier {
         final cCleanId = cleanInvId(ci.id);
         final localIdx = _invoices.indexWhere((li) {
           final lCleanId = cleanInvId(li.id);
-          final sameId = (cCleanId.isNotEmpty && lCleanId == cCleanId) || (li.id == ci.id);
-          final samePatient = li.patientName.trim().toLowerCase() == ci.patientName.trim().toLowerCase() && li.date == ci.date;
-          return sameId || samePatient;
+          return (cCleanId.isNotEmpty && lCleanId == cCleanId) ||
+                 (ci.id.isNotEmpty && li.id.trim().toLowerCase() == ci.id.trim().toLowerCase());
         });
 
         if (localIdx >= 0) {
           final li = _invoices[localIdx];
           processedLocalIds.add(li.id);
 
-          // Merge preserving the richer information
-          mergedInvoices.add(li.copyWith(
-            id: li.id.isNotEmpty ? li.id : ci.id,
-            patientName: li.patientName.isNotEmpty ? li.patientName : ci.patientName,
-            phone: li.phone.isNotEmpty ? li.phone : ci.phone,
-            doctor: li.doctor.isNotEmpty && !li.doctor.contains('Attending') ? li.doctor : ci.doctor,
-            date: li.date.isNotEmpty ? li.date : ci.date,
-            address: li.address.isNotEmpty ? li.address : ci.address,
-            opNumber: li.opNumber.isNotEmpty ? li.opNumber : ci.opNumber,
-            consultationCharge: li.consultationCharge > 0 ? li.consultationCharge : ci.consultationCharge,
-            xrayCharge: li.xrayCharge > 0 ? li.xrayCharge : ci.xrayCharge,
-            pharmacyCharge: li.pharmacyCharge > 0 ? li.pharmacyCharge : ci.pharmacyCharge,
-            treatmentCharge: li.treatmentCharge > 0 ? li.treatmentCharge : ci.treatmentCharge,
-            treatment: li.treatment.isNotEmpty ? li.treatment : ci.treatment,
-            treatmentNos: li.treatmentNos > 0 ? li.treatmentNos : ci.treatmentNos,
-            treatmentRate: li.treatmentRate > 0 ? li.treatmentRate : ci.treatmentRate,
-            customCharges: li.customCharges.isNotEmpty ? li.customCharges : ci.customCharges,
-            totalAmount: li.totalAmount > 0 ? li.totalAmount : ci.totalAmount,
-            paymentMode: li.paymentMode.isNotEmpty ? li.paymentMode : ci.paymentMode,
-            notes: li.notes.isNotEmpty ? li.notes : ci.notes,
+          // Merge preserving canonical cloud data while keeping any rich local entries
+          mergedInvoices.add(Invoice(
+            id: ci.id.isNotEmpty ? ci.id : li.id,
+            patientName: ci.patientName.isNotEmpty ? ci.patientName : li.patientName,
+            phone: ci.phone.isNotEmpty ? ci.phone : li.phone,
+            doctor: ci.doctor.isNotEmpty && !ci.doctor.contains('Attending')
+                ? ci.doctor
+                : (li.doctor.isNotEmpty && !li.doctor.contains('Attending') ? li.doctor : ci.doctor),
+            date: ci.date.isNotEmpty ? ci.date : li.date,
+            address: ci.address.isNotEmpty ? ci.address : li.address,
+            opNumber: ci.opNumber.isNotEmpty ? ci.opNumber : li.opNumber,
+            consultationCharge: ci.consultationCharge > 0 ? ci.consultationCharge : li.consultationCharge,
+            xrayCharge: ci.xrayCharge > 0 ? ci.xrayCharge : li.xrayCharge,
+            pharmacyCharge: ci.pharmacyCharge > 0 ? ci.pharmacyCharge : li.pharmacyCharge,
+            treatmentCharge: ci.treatmentCharge > 0 ? ci.treatmentCharge : li.treatmentCharge,
+            treatment: ci.treatment.isNotEmpty ? ci.treatment : li.treatment,
+            treatmentNos: ci.treatmentNos > 0 ? ci.treatmentNos : li.treatmentNos,
+            treatmentRate: ci.treatmentRate > 0 ? ci.treatmentRate : li.treatmentRate,
+            customCharges: ci.customCharges.isNotEmpty ? ci.customCharges : li.customCharges,
+            totalAmount: ci.totalAmount > 0 ? ci.totalAmount : li.totalAmount,
+            paymentMode: ci.paymentMode.isNotEmpty ? ci.paymentMode : li.paymentMode,
+            notes: ci.notes.isNotEmpty ? ci.notes : li.notes,
           ));
         } else {
           mergedInvoices.add(ci);
@@ -225,7 +226,7 @@ class StorageService extends ChangeNotifier {
         }
       }
 
-      // Cross-enrich any invoice missing opNumber, address, or treatment from patient directory
+      // Cross-enrich any invoice missing opNumber, address, treatment, or charges from patient directory
       for (int i = 0; i < mergedInvoices.length; i++) {
         var inv = mergedInvoices[i];
         final pMatch = _patients.where((p) {
@@ -244,6 +245,9 @@ class StorageService extends ChangeNotifier {
           String newAddr = inv.address;
           String newTreatment = inv.treatment;
           double newTreatmentCharge = inv.treatmentCharge;
+          double newConsult = inv.consultationCharge;
+          double newXray = inv.xrayCharge;
+          double newPharm = inv.pharmacyCharge;
 
           if (newOp.isEmpty && pat.opNumber.isNotEmpty) {
             newOp = pat.opNumber;
@@ -253,22 +257,65 @@ class StorageService extends ChangeNotifier {
             newAddr = pat.address;
             updated = true;
           }
-          if (newTreatment.isEmpty) {
-            final vMatch = pat.visits.where((v) => cleanInvId(v.invoiceId) == cleanInvId(inv.id) || v.date == inv.date);
-            if (vMatch.isNotEmpty && vMatch.first.notes.isNotEmpty) {
-              newTreatment = vMatch.first.notes;
+
+          final cleanId = cleanInvId(inv.id);
+          VisitRecord? matchedVisit;
+          for (final v in pat.visits) {
+            final vClean = cleanInvId(v.invoiceId);
+            if (vClean.isNotEmpty && (vClean == cleanId || cleanId.contains(vClean) || vClean.contains(cleanId))) {
+              matchedVisit = v;
+              break;
+            }
+          }
+          if (matchedVisit == null && pat.visits.length == 1) {
+            matchedVisit = pat.visits.first;
+          }
+
+          if (matchedVisit != null) {
+            if (newConsult <= 0 && matchedVisit.consultationCharge > 0) {
+              newConsult = matchedVisit.consultationCharge;
               updated = true;
-            } else if (pat.diseaseHistory.isNotEmpty) {
-              newTreatment = pat.diseaseHistory;
+            }
+            if (newXray <= 0 && matchedVisit.xrayCharge > 0) {
+              newXray = matchedVisit.xrayCharge;
+              updated = true;
+            }
+            if (newPharm <= 0 && matchedVisit.pharmacyCharge > 0) {
+              newPharm = matchedVisit.pharmacyCharge;
+              updated = true;
+            }
+            if (newTreatment.isEmpty && matchedVisit.notes.isNotEmpty) {
+              newTreatment = matchedVisit.notes;
+              updated = true;
+            }
+            if (newTreatmentCharge <= 0 && matchedVisit.treatmentCharge > 0) {
+              newTreatmentCharge = matchedVisit.treatmentCharge;
               updated = true;
             }
           }
-          if (newTreatmentCharge <= 0 && newTreatment.isNotEmpty) {
-            final known = inv.consultationCharge + inv.xrayCharge + inv.pharmacyCharge + inv.customCharges.fold<double>(0.0, (s, c) => s + c.amount);
-            if (inv.totalAmount > known) {
-              newTreatmentCharge = inv.totalAmount - known;
+
+          if (newTreatment.isEmpty) {
+            if (pat.diseaseHistory.isNotEmpty) {
+              newTreatment = pat.diseaseHistory;
+              updated = true;
+            } else if (inv.notes.isNotEmpty) {
+              newTreatment = inv.notes;
               updated = true;
             }
+          }
+
+          final known = newConsult + newXray + newPharm + inv.customCharges.fold<double>(0.0, (s, c) => s + c.amount);
+          if (newTreatmentCharge <= 0 && inv.totalAmount > known) {
+            newTreatmentCharge = inv.totalAmount - known;
+            updated = true;
+          } else if (newTreatmentCharge > 0 && inv.totalAmount > (newTreatmentCharge + known + 0.01)) {
+            newTreatmentCharge = inv.totalAmount - known;
+            updated = true;
+          }
+
+          if (newTreatment.isEmpty && (newTreatmentCharge > 0 || inv.totalAmount > known)) {
+            newTreatment = pat.diseaseHistory.isNotEmpty ? pat.diseaseHistory : 'Dental Treatment & Procedure';
+            updated = true;
           }
 
           if (updated) {
@@ -277,6 +324,9 @@ class StorageService extends ChangeNotifier {
               address: newAddr,
               treatment: newTreatment,
               treatmentCharge: newTreatmentCharge,
+              consultationCharge: newConsult,
+              xrayCharge: newXray,
+              pharmacyCharge: newPharm,
             );
           }
         }

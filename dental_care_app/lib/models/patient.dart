@@ -5,6 +5,10 @@ class VisitRecord {
   final String notes;
   final String invoiceId;
   final double amount;
+  final double consultationCharge;
+  final double xrayCharge;
+  final double pharmacyCharge;
+  final double treatmentCharge;
 
   VisitRecord({
     required this.date,
@@ -12,6 +16,10 @@ class VisitRecord {
     required this.notes,
     required this.invoiceId,
     required this.amount,
+    this.consultationCharge = 0.0,
+    this.xrayCharge = 0.0,
+    this.pharmacyCharge = 0.0,
+    this.treatmentCharge = 0.0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -20,6 +28,10 @@ class VisitRecord {
     'notes': notes,
     'invoiceId': invoiceId,
     'amount': amount,
+    'consultationCharge': consultationCharge,
+    'xrayCharge': xrayCharge,
+    'pharmacyCharge': pharmacyCharge,
+    'treatmentCharge': treatmentCharge,
   };
 
   factory VisitRecord.fromJson(Map<String, dynamic> json) => VisitRecord(
@@ -28,6 +40,10 @@ class VisitRecord {
     notes: json['notes'] ?? '',
     invoiceId: json['invoiceId'] ?? '',
     amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+    consultationCharge: (json['consultationCharge'] as num?)?.toDouble() ?? double.tryParse(json['consultationCharge']?.toString() ?? '') ?? 0.0,
+    xrayCharge: (json['xrayCharge'] as num?)?.toDouble() ?? double.tryParse(json['xrayCharge']?.toString() ?? '') ?? 0.0,
+    pharmacyCharge: (json['pharmacyCharge'] as num?)?.toDouble() ?? double.tryParse(json['pharmacyCharge']?.toString() ?? '') ?? 0.0,
+    treatmentCharge: (json['treatmentCharge'] as num?)?.toDouble() ?? double.tryParse(json['treatmentCharge']?.toString() ?? '') ?? 0.0,
   );
 }
 
