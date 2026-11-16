@@ -1134,7 +1134,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const cleanInv = inv.invoiceNo.replace(/^INV-/, '').toLowerCase();
             matchedVisit = cachedVisitsList.find(v => (v.invoiceNo || '').replace(/^INV-/, '').toLowerCase() === cleanInv);
             if (!matchedVisit && currentPatientProfile && Array.isArray(currentPatientProfile.visits)) {
-                matchedVisit = currentPatientProfile.visits.find(v => (v.invoiceNo || '').replace(/^INV-/, '').toLowerCase() === cleanInv || (v.date && v.date === inv.date) || (v.timestamp && v.timestamp === inv.timestamp));
+                matchedVisit = currentPatientProfile.visits.find(v => (v.invoiceNo || '').replace(/^INV-/, '').toLowerCase() === cleanInv);
+                if (!matchedVisit && currentPatientProfile.visits.length === 1) {
+                    matchedVisit = currentPatientProfile.visits[0];
+                }
             }
         }
 

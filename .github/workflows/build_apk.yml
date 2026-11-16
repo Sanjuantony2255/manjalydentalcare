@@ -48,30 +48,29 @@ jobs:
 
       - name: 🔨 Build Android Release APK
         run: |
+          set -e
           chmod +x android/gradlew
-          flutter build apk --release --android-skip-build-dependency-validation 2>&1 | tee build.log || {
-            echo "### ❌ Build Log Tail" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -n 120 build.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            exit 1
-          }
+          flutter build apk --release --android-skip-build-dependency-validation
 
       - name: 📋 Rename APK for clarity
         run: |
           mkdir -p ../dist
+          APK_SRC=""
           if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
-            cp "build/app/outputs/flutter-apk/app-release.apk" ../dist/Manjaly-Dental-Care-v1.0.1.apk
-            cp "build/app/outputs/flutter-apk/app-release.apk" ../dist/Manjaly-Dental-Care-v1.0.0.apk
-            cp "build/app/outputs/flutter-apk/app-release.apk" ../dist/Manjaly-Dental-Care.apk
+            APK_SRC="build/app/outputs/flutter-apk/app-release.apk"
           elif [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
-            cp "build/app/outputs/apk/release/app-release.apk" ../dist/Manjaly-Dental-Care-v1.0.1.apk
-            cp "build/app/outputs/apk/release/app-release.apk" ../dist/Manjaly-Dental-Care-v1.0.0.apk
-            cp "build/app/outputs/apk/release/app-release.apk" ../dist/Manjaly-Dental-Care.apk
+            APK_SRC="build/app/outputs/apk/release/app-release.apk"
           else
-            find build -type f -name "*release*.apk" -exec cp {} ../dist/Manjaly-Dental-Care-v1.0.1.apk \;
-            find build -type f -name "*release*.apk" -exec cp {} ../dist/Manjaly-Dental-Care-v1.0.0.apk \;
+            APK_SRC=$(find build -type f -name "*release*.apk" | head -n 1)
           fi
+          if [ -z "$APK_SRC" ] || [ ! -f "$APK_SRC" ]; then
+            echo "❌ Release APK not found in build outputs!"
+            exit 1
+          fi
+          echo "Found APK at $APK_SRC, copying to ../dist..."
+          cp "$APK_SRC" ../dist/Manjaly-Dental-Care-v1.0.1.apk
+          cp "$APK_SRC" ../dist/Manjaly-Dental-Care-v1.0.0.apk
+          cp "$APK_SRC" ../dist/Manjaly-Dental-Care.apk
           ls -la ../dist/
 
       - name: 📤 Upload APK Artifact to GitHub Actions
@@ -83,18 +82,14 @@ jobs:
             dental_care_app/build/app/outputs/flutter-apk/*.apk
           retention-days: 30
 
-      - name: 🚀 Release APK via GitHub CLI (with asset clobber)
+      - name: 🚀 Publish APK to GitHub Releases via Python Script
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
-        continue-on-error: true
         run: |
           cd "$GITHUB_WORKSPACE"
-          TAG="${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.1' }}"
-          echo "Releasing APKs under tag $TAG for $GH_REPO..."
-          gh release create "$TAG" dist/Manjaly-Dental-Care-v1.0.1.apk dist/Manjaly-Dental-Care-v1.0.0.apk dist/Manjaly-Dental-Care.apk --title "Release $TAG" --notes "🦷 Manjaly Dental Care - Android Release APK" --latest || \
-          gh release upload "$TAG" dist/Manjaly-Dental-Care-v1.0.1.apk dist/Manjaly-Dental-Care-v1.0.0.apk dist/Manjaly-Dental-Care.apk --clobber
+          python3 scripts/upload_release.py dist/Manjaly-Dental-Care-v1.0.1.apk
         env:
-          GH_REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: 🚀 Create or Update GitHub Release with APK
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
@@ -119,7 +114,7 @@ jobs:
             - Pharmacy & dental stock management with low-stock alerts.
 
             ### 📲 Download & Install
-            Download **`Manjaly-Dental-Care-v1.0.0.apk`** below and install it directly on any Android device (Android 5.0 Lollipop and above).
+            Download **`Manjaly-Dental-Care-v1.0.1.apk`** (or **`Manjaly-Dental-Care-v1.0.0.apk`**) below and install it directly on any Android device (Android 5.0 Lollipop and above).
           draft: false
           prerelease: false
           make_latest: true

@@ -275,6 +275,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 }));
             }
 
+            for (const p of Object.values(mergedMap)) {
+                if (Array.isArray(p.invoices)) {
+                    p.invoices.sort((a, b) => (b.invoiceNo || '').localeCompare(a.invoiceNo || ''));
+                }
+                if (Array.isArray(p.visits)) {
+                    p.visits.sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''));
+                }
+            }
+
             allPatientsList = Object.values(mergedMap);
             allPatientsList.sort((a, b) => (b.latestVisit || '').localeCompare(a.latestVisit || ''));
 
