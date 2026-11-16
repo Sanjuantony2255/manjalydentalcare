@@ -118,28 +118,33 @@ class InvoiceReceiptDialog extends StatelessWidget {
       ));
     }
 
-    // Safety fallback: if treatment is empty, but totalAmount exceeds the known charges,
-    // ensure the unlisted procedure/treatment is displayed as the primary row
+    // Safety fallback: ensure all amounts and treatments reconcile with totalAmount
     final currentRowsTotal = rows.fold<double>(0.0, (s, r) => s + r.amount);
-    if (inv.treatment.isEmpty && inv.totalAmount > (currentRowsTotal + 0.01)) {
+    if (inv.totalAmount > (currentRowsTotal + 0.01)) {
       final diff = inv.totalAmount - currentRowsTotal;
-      final desc = inv.notes.isNotEmpty ? inv.notes : 'Dental Treatment & Procedure';
-      rows.insert(0, InvoiceItemRow(
-        index: 1,
-        treatment: desc,
-        nos: 1,
-        rate: diff,
-        amount: diff,
-      ));
-      // Re-index rows
-      for (int i = 0; i < rows.length; i++) {
-        rows[i] = InvoiceItemRow(
-          index: i + 1,
-          treatment: rows[i].treatment,
-          nos: rows[i].nos,
-          rate: rows[i].rate,
-          amount: rows[i].amount,
+      final treatIdx = rows.indexWhere((r) => !r.treatment.contains('Charge') && !r.treatment.contains('Fee'));
+      if (treatIdx >= 0) {
+        final old = rows[treatIdx];
+        final newAmt = old.amount + diff;
+        final newNos = old.nos > 0 ? old.nos : 1;
+        rows[treatIdx] = InvoiceItemRow(
+          index: old.index,
+          treatment: old.treatment,
+          nos: newNos,
+          rate: newNos > 0 ? (newAmt / newNos) : newAmt,
+          amount: newAmt,
         );
+      } else {
+        final desc = inv.treatment.isNotEmpty
+            ? inv.treatment
+            : (inv.notes.isNotEmpty ? inv.notes : 'Dental Treatment & Procedure');
+        rows.insert(0, InvoiceItemRow(
+          index: 1,
+          treatment: desc,
+          nos: 1,
+          rate: diff,
+          amount: diff,
+        ));
       }
     }
 
@@ -151,6 +156,17 @@ class InvoiceReceiptDialog extends StatelessWidget {
         rate: inv.totalAmount,
         amount: inv.totalAmount,
       ));
+    }
+
+    // Re-index rows sequentially 1..N
+    for (int i = 0; i < rows.length; i++) {
+      rows[i] = InvoiceItemRow(
+        index: i + 1,
+        treatment: rows[i].treatment,
+        nos: rows[i].nos,
+        rate: rows[i].rate,
+        amount: rows[i].amount,
+      );
     }
 
     return rows;

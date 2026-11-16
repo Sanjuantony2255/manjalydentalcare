@@ -160,9 +160,10 @@ class ApiService {
   }
 
   /// Dynamically locates the column index from header row based on keywords
-  static int _findCol(List<String> headers, List<String> patterns, int fallback) {
+  static int _findCol(List<String> headers, List<String> patterns, int fallback, {List<String> excludes = const []}) {
     for (int i = 0; i < headers.length; i++) {
       final h = headers[i].toLowerCase().trim();
+      if (excludes.any((ex) => h.contains(ex.toLowerCase()))) continue;
       for (final p in patterns) {
         if (h.contains(p.toLowerCase())) return i;
       }
@@ -239,23 +240,68 @@ class ApiService {
             final visitsCount = (item['visitsCount'] as num?)?.toInt() ?? 1;
             final totalBilled = (item['totalBilled'] as num?)?.toDouble() ?? 0.0;
 
+            final rawOp = item['opNumber']?.toString().trim() ?? '';
+            final effectiveOp = rawOp.isNotEmpty ? rawOp : 'OP-${(name.hashCode.abs() % 900) + 100}';
+
             final List<VisitRecord> visits = [];
             if (item['visits'] is List) {
               for (final v in item['visits']) {
                 if (v is Map) {
+                  final vDate = v['date']?.toString() ?? v['timestamp']?.toString().split(' ').first ?? latestVisit;
+                  final vDoc = v['doctor']?.toString() ?? v['doctorConsulted']?.toString() ?? doctor;
+                  final vNotes = v['notes']?.toString() ?? v['diseaseHistory']?.toString() ?? diseaseHistory;
+                  final vInvNo = v['invoiceId']?.toString() ?? v['invoiceNo']?.toString() ?? 'INV-SHEET';
+                  final vTot = (v['amount'] as num?)?.toDouble() ?? (v['totalAmount'] as num?)?.toDouble() ?? 0.0;
+                  final vConsult = (v['consultationCharge'] as num?)?.toDouble() ?? double.tryParse(v['consultationCharge']?.toString() ?? '') ?? 0.0;
+                  final vXray = (v['xrayCharge'] as num?)?.toDouble() ?? double.tryParse(v['xrayCharge']?.toString() ?? '') ?? 0.0;
+                  final vPharm = (v['pharmacyCharge'] as num?)?.toDouble() ?? double.tryParse(v['pharmacyCharge']?.toString() ?? '') ?? 0.0;
+                  final vPayMode = v['paymentMode']?.toString() ?? 'Cash';
+
                   visits.add(VisitRecord(
-                    date: v['date']?.toString() ?? v['timestamp']?.toString().split(' ').first ?? latestVisit,
-                    doctor: v['doctor']?.toString() ?? v['doctorConsulted']?.toString() ?? doctor,
-                    notes: v['notes']?.toString() ?? v['diseaseHistory']?.toString() ?? diseaseHistory,
-                    invoiceId: v['invoiceId']?.toString() ?? v['invoiceNo']?.toString() ?? 'INV-SHEET',
-                    amount: (v['amount'] as num?)?.toDouble() ?? (v['totalAmount'] as num?)?.toDouble() ?? 0.0,
+                    date: vDate,
+                    doctor: vDoc,
+                    notes: vNotes,
+                    invoiceId: vInvNo,
+                    amount: vTot,
                   ));
+
+                  if (vInvNo.isNotEmpty && !vInvNo.toLowerCase().contains('sheet') && !isDummyInvoice(vInvNo, name)) {
+                    final otherSum = vConsult + vXray + vPharm;
+                    final vTreatCharge = vTot > otherSum ? (vTot - otherSum) : 0.0;
+                    final visitInv = Invoice(
+                      id: vInvNo,
+                      patientName: name,
+                      phone: phone,
+                      doctor: vDoc,
+                      date: vDate,
+                      address: email,
+                      opNumber: effectiveOp,
+                      consultationCharge: vConsult,
+                      xrayCharge: vXray,
+                      pharmacyCharge: vPharm,
+                      treatmentCharge: vTreatCharge,
+                      treatment: vNotes,
+                      treatmentNos: 1,
+                      treatmentRate: vTreatCharge,
+                      totalAmount: vTot,
+                      paymentMode: vPayMode,
+                      notes: vNotes,
+                    );
+                    final exIdx = invoices.indexWhere((it) => it.id.toLowerCase() == visitInv.id.toLowerCase());
+                    if (exIdx >= 0) {
+                      invoices[exIdx] = invoices[exIdx].copyWith(
+                        treatment: invoices[exIdx].treatment.isNotEmpty ? invoices[exIdx].treatment : visitInv.treatment,
+                        treatmentCharge: invoices[exIdx].treatmentCharge > 0 ? invoices[exIdx].treatmentCharge : visitInv.treatmentCharge,
+                        consultationCharge: invoices[exIdx].consultationCharge > 0 ? invoices[exIdx].consultationCharge : visitInv.consultationCharge,
+                        opNumber: invoices[exIdx].opNumber.isNotEmpty ? invoices[exIdx].opNumber : visitInv.opNumber,
+                      );
+                    } else {
+                      invoices.add(visitInv);
+                    }
+                  }
                 }
               }
             }
-
-            final rawOp = item['opNumber']?.toString().trim() ?? '';
-            final effectiveOp = rawOp.isNotEmpty ? rawOp : 'OP-${(name.hashCode.abs() % 900) + 100}';
 
             final parsedPatient = Patient(
               id: phone.isNotEmpty ? 'PAT-$phone' : 'PAT-${name.hashCode.abs()}',
@@ -523,7 +569,7 @@ class ApiService {
           final colTreatmentCharge = _findCol(headers, ['treatment charge', 'procedure charge', 'treatment fee'], -1);
           final colTreatmentNos = _findCol(headers, ['treatment nos', 'nos', 'qty', 'quantity'], -1);
           final colTreatmentRate = _findCol(headers, ['treatment rate', 'rate', 'unit price'], -1);
-          final colConsult = _findCol(headers, ['consultation charge', 'consult charge', 'consultation fee', 'consultation', 'consult'], -1);
+          final colConsult = _findCol(headers, ['consultation charge', 'consult charge', 'consultation fee', 'consultation', 'consult'], -1, excludes: ['doctor', 'dentist']);
           final colXray = _findCol(headers, ['xray', 'x-ray'], -1);
           final colPharm = _findCol(headers, ['pharm', 'medicin', 'medicine'], -1);
           final colCustom = _findCol(headers, ['custom charges', 'custom', 'extra'], -1);
@@ -644,9 +690,20 @@ class ApiService {
               paymentMode: payMode,
             );
 
-            final existingIdx = invoices.indexWhere((it) => it.id == inv.id);
+            final existingIdx = invoices.indexWhere((it) => it.id.toLowerCase() == inv.id.toLowerCase());
             if (existingIdx >= 0) {
-              invoices[existingIdx] = inv;
+              final cur = invoices[existingIdx];
+              invoices[existingIdx] = inv.copyWith(
+                treatment: inv.treatment.isNotEmpty ? inv.treatment : cur.treatment,
+                treatmentCharge: inv.treatmentCharge > 0 ? inv.treatmentCharge : cur.treatmentCharge,
+                consultationCharge: inv.consultationCharge > 0 ? inv.consultationCharge : cur.consultationCharge,
+                xrayCharge: inv.xrayCharge > 0 ? inv.xrayCharge : cur.xrayCharge,
+                pharmacyCharge: inv.pharmacyCharge > 0 ? inv.pharmacyCharge : cur.pharmacyCharge,
+                opNumber: inv.opNumber.isNotEmpty ? inv.opNumber : cur.opNumber,
+                address: inv.address.isNotEmpty ? inv.address : cur.address,
+                notes: inv.notes.isNotEmpty ? inv.notes : cur.notes,
+                customCharges: inv.customCharges.isNotEmpty ? inv.customCharges : cur.customCharges,
+              );
             } else {
               invoices.add(inv);
             }

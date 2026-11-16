@@ -90,6 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingInvoiceVisit = null;
     let currentPatientProfile = null;
     let cachedInvoicesList = [];
+    let cachedVisitsList = [];
 
     // 1. Toast Notification Helper
     function showToast(title, message, type = 'success') {
@@ -608,6 +609,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             cachedInvoicesList = invoices;
+            cachedVisitsList = visits;
 
             // STEP D: Render or Show Empty State
             if (visits.length > 0 || invoices.length > 0) {
@@ -1131,6 +1133,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (inv.invoiceNo) {
             const cleanInv = inv.invoiceNo.replace(/^INV-/, '').toLowerCase();
             matchedVisit = cachedVisitsList.find(v => (v.invoiceNo || '').replace(/^INV-/, '').toLowerCase() === cleanInv);
+            if (!matchedVisit && currentPatientProfile && Array.isArray(currentPatientProfile.visits)) {
+                matchedVisit = currentPatientProfile.visits.find(v => (v.invoiceNo || '').replace(/^INV-/, '').toLowerCase() === cleanInv || (v.date && v.date === inv.date) || (v.timestamp && v.timestamp === inv.timestamp));
+            }
         }
 
         let doctor = inv.doctorConsulted || (richInv ? richInv.doctorConsulted : '') || (matchedVisit ? matchedVisit.doctorConsulted : '') || (currentPatientProfile ? currentPatientProfile.doctorConsulted : '') || 'Dr. Jeswin Jose BDS';
@@ -1183,8 +1188,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const invModalTableBody = document.getElementById('invModalTableBody');
         const invModalTotal = document.getElementById('invModalTotal');
         if (invModalTableBody) {
-            let rowHtml = '';
-            let rIdx = 1;
             const cAmt = parseFloat(inv.consultationCharge) || 0;
             const tAmt = parseFloat(inv.treatmentCharge) || 0;
             const xAmt = parseFloat(inv.xrayCharge) || 0;
@@ -1195,93 +1198,58 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const formatNum = (n) => (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+            const items = [];
+
             if (inv.treatment && inv.treatment.trim().length > 0) {
                 const nos = inv.nos || inv.treatmentNos || 1;
                 let amt = tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum));
                 if (amt < 0) amt = 0;
                 const rate = inv.rate || inv.treatmentRate ? parseFloat(inv.rate || inv.treatmentRate) : (nos > 0 ? (amt / nos) : amt);
-                rowHtml += `<tr>
-                    <td style="text-align: center;">${rIdx++}</td>
-                    <td>${escapeHtml(inv.treatment)}</td>
-                    <td style="text-align: center;">${nos}</td>
-                    <td style="text-align: right;">${formatNum(rate)}</td>
-                    <td style="text-align: right;">${formatNum(amt)}</td>
-                </tr>`;
+                items.push({ treatment: inv.treatment.trim(), nos: nos, rate: rate, amount: amt });
             }
 
             if (cAmt > 0) {
-                rowHtml += `<tr>
-                    <td style="text-align: center;">${rIdx++}</td>
-                    <td>Doctor Consultation Charge</td>
-                    <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatNum(cAmt)}</td>
-                    <td style="text-align: right;">${formatNum(cAmt)}</td>
-                </tr>`;
+                items.push({ treatment: 'Doctor Consultation Charge', nos: 1, rate: cAmt, amount: cAmt });
             }
 
             if (xAmt > 0) {
-                rowHtml += `<tr>
-                    <td style="text-align: center;">${rIdx++}</td>
-                    <td>X-Ray Examination Charge</td>
-                    <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatNum(xAmt)}</td>
-                    <td style="text-align: right;">${formatNum(xAmt)}</td>
-                </tr>`;
+                items.push({ treatment: 'X-Ray Examination Charge', nos: 1, rate: xAmt, amount: xAmt });
             }
 
             if (pAmt > 0) {
-                rowHtml += `<tr>
-                    <td style="text-align: center;">${rIdx++}</td>
-                    <td>Pharmacy / Medicines Charge</td>
-                    <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatNum(pAmt)}</td>
-                    <td style="text-align: right;">${formatNum(pAmt)}</td>
-                </tr>`;
+                items.push({ treatment: 'Pharmacy / Medicines Charge', nos: 1, rate: pAmt, amount: pAmt });
             }
 
             customs.forEach(c => {
                 const amt = parseFloat(c.amount) || 0;
-                rowHtml += `<tr>
-                    <td style="text-align: center;">${rIdx++}</td>
-                    <td>${escapeHtml(c.title || 'Extra')}</td>
-                    <td style="text-align: center;">${c.nos || 1}</td>
-                    <td style="text-align: right;">${formatNum(parseFloat(c.rate) || amt)}</td>
-                    <td style="text-align: right;">${formatNum(amt)}</td>
-                </tr>`;
+                items.push({ treatment: c.title || 'Extra Charge', nos: c.nos || 1, rate: parseFloat(c.rate) || amt, amount: amt });
             });
 
-            // Fallback: if treatment was empty but total is greater than known charges
-            const currentTotal = (inv.treatment ? (tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum))) : 0) + cAmt + xAmt + pAmt + customSum;
-            if (!inv.treatment && total > (currentTotal + 0.01)) {
-                const diff = total - currentTotal;
-                const desc = inv.notes || 'Dental Treatment & Procedure';
-                rowHtml = `<tr>
-                    <td style="text-align: center;">1</td>
-                    <td>${escapeHtml(desc)}</td>
-                    <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatNum(diff)}</td>
-                    <td style="text-align: right;">${formatNum(diff)}</td>
-                </tr>` + rowHtml;
+            // Reconcile with totalAmount
+            const currentSum = items.reduce((s, it) => s + it.amount, 0);
+            if (total > currentSum + 0.01) {
+                const diff = total - currentSum;
+                const treatItem = items.find(it => !it.treatment.includes('Charge') && !it.treatment.includes('Fee'));
+                if (treatItem) {
+                    treatItem.amount += diff;
+                    treatItem.rate = treatItem.nos > 0 ? (treatItem.amount / treatItem.nos) : treatItem.amount;
+                } else {
+                    const desc = inv.treatment || inv.notes || (currentPatientProfile && currentPatientProfile.diseaseHistory) || 'Dental Treatment & Procedure';
+                    items.unshift({ treatment: desc, nos: 1, rate: diff, amount: diff });
+                }
             }
 
-            if (!rowHtml) {
-                rowHtml = `<tr>
-                    <td style="text-align: center;">1</td>
-                    <td>Dental Consultation & Treatment</td>
-                    <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatNum(total)}</td>
-                    <td style="text-align: right;">${formatNum(total)}</td>
-                </tr>`;
+            if (items.length === 0) {
+                items.push({ treatment: 'Dental Consultation & Treatment', nos: 1, rate: total, amount: total });
             }
-                const amt = parseFloat(c.amount) || 0;
-                rowHtml += `<tr>
-                    <td style="text-align: center;">${rIdx++}</td>
-                    <td>${escapeHtml(c.title || 'Clinical Procedure')}</td>
-                    <td style="text-align: center;">${c.nos || 1}</td>
-                    <td style="text-align: right;">${formatNum(parseFloat(c.rate) || amt)}</td>
-                    <td style="text-align: right;">${formatNum(amt)}</td>
-                </tr>`;
-            });
+
+            let rowHtml = items.map((it, idx) => `<tr>
+                <td style="text-align: center;">${idx + 1}</td>
+                <td>${escapeHtml(it.treatment)}</td>
+                <td style="text-align: center;">${it.nos}</td>
+                <td style="text-align: right;">${formatNum(it.rate)}</td>
+                <td style="text-align: right;">${formatNum(it.amount)}</td>
+            </tr>`).join('');
 
             // Blank spacer row to match reference receipt pad
             rowHtml += `<tr class="spacer-row"><td></td><td></td><td></td><td></td><td></td></tr>`;
@@ -1688,87 +1656,58 @@ Wishing you good oral health!
         const total = parseFloat(inv.totalAmount) || (cAmt + tAmt + xAmt + pAmt + customSum);
 
         const formatNum = (n) => (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        let rowsHtml = '';
-        let rIdx = 1;
+        const items = [];
 
         if (inv.treatment && inv.treatment.trim().length > 0) {
             const nos = inv.nos || inv.treatmentNos || 1;
             let amt = tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum));
             if (amt < 0) amt = 0;
             const rate = inv.rate || inv.treatmentRate ? parseFloat(inv.rate || inv.treatmentRate) : (nos > 0 ? (amt / nos) : amt);
-            rowsHtml += `<tr>
-                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(inv.treatment)}</td>
-                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">${nos}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(rate)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
-            </tr>`;
+            items.push({ treatment: inv.treatment.trim(), nos: nos, rate: rate, amount: amt });
         }
 
         if (cAmt > 0) {
-            rowsHtml += `<tr>
-                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">Doctor Consultation Charge</td>
-                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(cAmt)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(cAmt)}</td>
-            </tr>`;
+            items.push({ treatment: 'Doctor Consultation Charge', nos: 1, rate: cAmt, amount: cAmt });
         }
 
         if (xAmt > 0) {
-            rowsHtml += `<tr>
-                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">X-Ray Examination Charge</td>
-                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(xAmt)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(xAmt)}</td>
-            </tr>`;
+            items.push({ treatment: 'X-Ray Examination Charge', nos: 1, rate: xAmt, amount: xAmt });
         }
 
         if (pAmt > 0) {
-            rowsHtml += `<tr>
-                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">Pharmacy / Medicines Charge</td>
-                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(pAmt)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(pAmt)}</td>
-            </tr>`;
+            items.push({ treatment: 'Pharmacy / Medicines Charge', nos: 1, rate: pAmt, amount: pAmt });
         }
 
         customs.forEach(c => {
             const amt = parseFloat(c.amount) || 0;
-            rowsHtml += `<tr>
-                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(c.title || 'Extra')}</td>
-                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">${c.nos || 1}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(parseFloat(c.rate) || amt)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
-            </tr>`;
+            items.push({ treatment: c.title || 'Extra Charge', nos: c.nos || 1, rate: parseFloat(c.rate) || amt, amount: amt });
         });
 
-        // Fallback: if treatment was empty but total is greater than known charges
-        const currentSum = (inv.treatment ? (tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum))) : 0) + cAmt + xAmt + pAmt + customSum;
-        if (!inv.treatment && total > (currentSum + 0.01)) {
+        // Reconcile with totalAmount
+        const currentSum = items.reduce((s, it) => s + it.amount, 0);
+        if (total > currentSum + 0.01) {
             const diff = total - currentSum;
-            const desc = inv.notes || 'Dental Treatment & Procedure';
-            rowsHtml = `<tr>
-                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(desc)}</td>
-                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(diff)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(diff)}</td>
-            </tr>` + rowsHtml;
+            const treatItem = items.find(it => !it.treatment.includes('Charge') && !it.treatment.includes('Fee'));
+            if (treatItem) {
+                treatItem.amount += diff;
+                treatItem.rate = treatItem.nos > 0 ? (treatItem.amount / treatItem.nos) : treatItem.amount;
+            } else {
+                const desc = inv.treatment || inv.notes || (currentPatientProfile && currentPatientProfile.diseaseHistory) || 'Dental Treatment & Procedure';
+                items.unshift({ treatment: desc, nos: 1, rate: diff, amount: diff });
+            }
         }
 
-        if (!rowsHtml) {
-            rowsHtml = `<tr>
-                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">Dental Consultation & Treatment</td>
-                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(total)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(total)}</td>
-            </tr>`;
+        if (items.length === 0) {
+            items.push({ treatment: 'Dental Consultation & Treatment', nos: 1, rate: total, amount: total });
         }
+
+        let rowsHtml = items.map((it, idx) => `<tr>
+            <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${idx + 1}</td>
+            <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(it.treatment)}</td>
+            <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">${it.nos}</td>
+            <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(it.rate)}</td>
+            <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(it.amount)}</td>
+        </tr>`).join('');
 
         // Blank spacer row to match reference receipt pad
         rowsHtml += `<tr><td style="height: 180px; border-left: 1px solid #000; border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td></tr>`;
