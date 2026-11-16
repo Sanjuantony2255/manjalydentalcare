@@ -80,12 +80,15 @@ jobs:
 
       - name: 🚀 Release APK via GitHub CLI (with asset clobber)
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        continue-on-error: true
         run: |
+          cd "$GITHUB_WORKSPACE"
           TAG="${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}"
-          APK_FILE="../dist/Manjaly-Dental-Care-v1.0.0.apk"
-          echo "Releasing $APK_FILE under tag $TAG..."
+          APK_FILE="dist/Manjaly-Dental-Care-v1.0.0.apk"
+          echo "Releasing $APK_FILE under tag $TAG for $GH_REPO..."
           gh release upload "$TAG" "$APK_FILE" --clobber || gh release create "$TAG" "$APK_FILE" --title "Release $TAG" --notes "🦷 Manjaly Dental Care - Android Release APK" --latest
         env:
+          GH_REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🚀 Create or Update GitHub Release with APK
@@ -94,7 +97,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}
-          files: ../dist/Manjaly-Dental-Care-v1.0.0.apk
+          files: |
+            dist/Manjaly-Dental-Care-v1.0.0.apk
+            dental_care_app/build/app/outputs/flutter-apk/app-release.apk
           name: Release ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}
           body: |
             ## 🦷 Manjaly Dental Care - Android Release
