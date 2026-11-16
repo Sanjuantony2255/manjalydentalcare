@@ -52,9 +52,12 @@ jobs:
           set -o pipefail
           chmod +x android/gradlew
           flutter build apk --release --android-skip-build-dependency-validation --no-tree-shake-icons 2>&1 | tee build.log || {
-            while IFS= read -r line; do
-              echo "::error title=FlutterBuildError::$line"
-            done < <(tail -n 40 build.log)
+            grep -C 5 -i "caused by" build.log | while IFS= read -r line; do
+              echo "::error title=CausedBy::$line"
+            done
+            tail -n 25 build.log | while IFS= read -r line; do
+              echo "::error title=LogTail::$line"
+            done
             exit 1
           }
 
