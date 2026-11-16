@@ -14,6 +14,13 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == 'kotlin-android') {
+                useModule("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24")
+            }
+        }
+    }
 }
 
 plugins {
