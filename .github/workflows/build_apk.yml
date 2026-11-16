@@ -49,8 +49,13 @@ jobs:
       - name: 🔨 Build Android Release APK
         run: |
           set -e
+          set -o pipefail
           chmod +x android/gradlew
-          flutter build apk --release --android-skip-build-dependency-validation
+          flutter build apk --release --android-skip-build-dependency-validation --no-tree-shake-icons 2>&1 | tee build.log || {
+            echo "::error::Flutter build failed! Printing tail of build log:"
+            tail -n 120 build.log
+            exit 1
+          }
 
       - name: 📋 Rename APK for clarity
         run: |

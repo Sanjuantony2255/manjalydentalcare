@@ -109,3 +109,4 @@ if __name__ == '__main__':
     upload_to_release('v1.0.1', apk_path, 'Manjaly-Dental-Care.apk')
     # Also update v1.0.0 release asset so users clicking the old v1.0.0 link get the fresh APK
     upload_to_release('v1.0.0', apk_path, 'Manjaly-Dental-Care-v1.0.0.apk')
+
