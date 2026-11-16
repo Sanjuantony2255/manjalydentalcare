@@ -52,8 +52,9 @@ jobs:
           set -o pipefail
           chmod +x android/gradlew
           flutter build apk --release --android-skip-build-dependency-validation --no-tree-shake-icons 2>&1 | tee build.log || {
-            echo "::error::Flutter build failed! Printing tail of build log:"
-            tail -n 120 build.log
+            while IFS= read -r line; do
+              echo "::error title=FlutterBuildError::$line"
+            done < <(tail -n 40 build.log)
             exit 1
           }
 
