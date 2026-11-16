@@ -48,18 +48,21 @@ jobs:
 
       - name: 🔨 Build Android Release APK
         run: |
-          set -e
           set -o pipefail
           chmod +x android/gradlew
           flutter build apk --release --android-skip-build-dependency-validation --no-tree-shake-icons 2>&1 | tee build.log || {
-            grep -C 5 -i "caused by" build.log | while IFS= read -r line; do
-              echo "::error title=CausedBy::$line"
-            done
-            tail -n 25 build.log | while IFS= read -r line; do
-              echo "::error title=LogTail::$line"
+            tail -n 60 build.log | while IFS= read -r line; do
+              echo "::error title=BuildLog::$line"
             done
             exit 1
           }
+
+      - name: 📋 Upload Build Log Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-build-log
+          path: dental_care_app/build.log
 
       - name: 📋 Rename APK for clarity
         run: |
