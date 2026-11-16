@@ -475,6 +475,20 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
                               'Date: ${inv.date} • Dr. ${inv.doctor} • Paid (${inv.paymentMode})',
                               style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                             ),
+                            if (inv.treatment.isNotEmpty) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                'Treatment: ${inv.treatment}',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.primaryTeal),
+                              ),
+                            ],
+                            if (inv.customCharges.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                'Extra: ${inv.customCharges.map((c) => "${c.title}: ₹${c.amount.toStringAsFixed(0)}").join(", ")}',
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                              ),
+                            ],
                             if (inv.notes.isNotEmpty) ...[
                               const SizedBox(height: 3),
                               Text(
@@ -1364,9 +1378,23 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                '${inv.phone} • Doctor: ${inv.doctor}',
+                '${inv.phone}${inv.opNumber.isNotEmpty ? " • OP: ${inv.opNumber}" : ""} • Doctor: ${inv.doctor}',
                 style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
+              if (inv.treatment.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Treatment: ${inv.treatment}',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.primaryTeal),
+                ),
+              ],
+              if (inv.customCharges.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Extra: ${inv.customCharges.map((c) => "${c.title}: ₹${c.amount.toStringAsFixed(0)}").join(", ")}',
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                ),
+              ],
               const SizedBox(height: 8),
               Row(
                 children: [

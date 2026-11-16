@@ -366,9 +366,23 @@ class _AccountsScreenState extends State<AccountsScreen> {
                                       ),
                                       const SizedBox(height: 2),
                                       Text(
-                                        '${inv.id} • ${inv.date} • ${inv.paymentMode}',
+                                        '${inv.id}${inv.opNumber.isNotEmpty ? " • OP: ${inv.opNumber}" : ""} • ${inv.date} • ${inv.paymentMode}',
                                         style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                                       ),
+                                      if (inv.treatment.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Treatment: ${inv.treatment}',
+                                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.primaryTeal),
+                                        ),
+                                      ],
+                                      if (inv.customCharges.isNotEmpty) ...[
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Extra: ${inv.customCharges.map((c) => "${c.title}: ₹${c.amount.toStringAsFixed(0)}").join(", ")}',
+                                          style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                 ),

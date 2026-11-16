@@ -324,6 +324,38 @@ function appendVisitRowMapped(sheet, data, headers) {
   sheet.appendRow(row);
 }
 
+function appendInvoiceRowMapped(sheet, data, driveUrl) {
+  var headerValues = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+  var row = [];
+  var customStr = Array.isArray(data.customCharges) ? JSON.stringify(data.customCharges) : (data.customCharges ? data.customCharges.toString() : '');
+  var phoneStr = data.phone ? "'" + data.phone.toString().trim() : '';
+
+  for (var ic = 0; ic < headerValues.length; ic++) {
+    var ih = (headerValues[ic] || '').toString().toLowerCase().trim();
+    var ival = '';
+    if (ih.indexOf('invoice') !== -1 || ih.indexOf('bill') !== -1) ival = data.invoiceNo || '';
+    else if (ih.indexOf('op') !== -1) ival = data.opNumber || '';
+    else if (ih.indexOf('time') !== -1 || ih.indexOf('date') !== -1) ival = data.timestamp || '';
+    else if (ih.indexOf('patient') !== -1 || (ih.indexOf('name') !== -1 && ih.indexOf('doctor') === -1)) ival = data.fullName || data.name || data.patientName || '';
+    else if (ih.indexOf('phone') !== -1 || ih.indexOf('mobile') !== -1) ival = phoneStr;
+    else if (ih.indexOf('doctor') !== -1) ival = data.doctorConsulted || '';
+    else if (ih.indexOf('treatment charge') !== -1 || ih.indexOf('procedure charge') !== -1) ival = (parseFloat(data.treatmentCharge) || 0).toFixed(2);
+    else if (ih.indexOf('treatment nos') !== -1 || ih.indexOf('nos') !== -1) ival = (data.treatmentNos || data.nos || 1).toString();
+    else if (ih.indexOf('treatment rate') !== -1 || ih.indexOf('rate') !== -1) ival = (parseFloat(data.treatmentRate || data.rate) || parseFloat(data.treatmentCharge) || 0).toFixed(2);
+    else if (ih.indexOf('treatment') !== -1) ival = data.treatment || data.diseaseHistory || '';
+    else if (ih.indexOf('consult') !== -1) ival = (parseFloat(data.consultationCharge) || 0).toFixed(2);
+    else if (ih.indexOf('xray') !== -1 || ih.indexOf('x-ray') !== -1) ival = (parseFloat(data.xrayCharge) || 0).toFixed(2);
+    else if (ih.indexOf('pharm') !== -1 || ih.indexOf('med') !== -1) ival = (parseFloat(data.pharmacyCharge) || 0).toFixed(2);
+    else if (ih.indexOf('custom') !== -1 || ih.indexOf('extra') !== -1) ival = customStr;
+    else if (ih.indexOf('total') !== -1 || ih.indexOf('amount') !== -1) ival = (parseFloat(data.totalAmount) || 0).toFixed(2);
+    else if (ih.indexOf('payment') !== -1 || ih.indexOf('mode') !== -1) ival = data.paymentMode || 'Cash';
+    else if (ih.indexOf('address') !== -1 || ih.indexOf('place') !== -1) ival = data.address || data.email || '';
+    else if (ih.indexOf('drive') !== -1 || ih.indexOf('url') !== -1) ival = driveUrl || '';
+    row.push(ival);
+  }
+  sheet.appendRow(row);
+}
+
 function getInvoicesSheet(ss) {
   var sheet = ss.getSheetByName("Invoices");
   if (!sheet) {
@@ -565,9 +597,26 @@ function handlePatientRegistration(ss, data) {
   }
 
   var consultation = parseFloat(data.consultationCharge) || 0;
+  var treatmentCharge = parseFloat(data.treatmentCharge) || 0;
   var xray = parseFloat(data.xrayCharge) || 0;
   var pharmacy = parseFloat(data.pharmacyCharge) || 0;
-  var total = parseFloat(data.totalAmount) || (consultation + xray + pharmacy);
+
+  var customCharges = [];
+  if (Array.isArray(data.customCharges)) {
+    customCharges = data.customCharges;
+  } else if (typeof data.customCharges === 'string' && data.customCharges.trim().length > 0) {
+    try {
+      var parsedCustom = JSON.parse(data.customCharges.trim());
+      if (Array.isArray(parsedCustom)) customCharges = parsedCustom;
+    } catch(e) {}
+  }
+  var customSum = 0;
+  for (var ci = 0; ci < customCharges.length; ci++) {
+    customSum += (parseFloat(customCharges[ci].amount) || 0);
+  }
+  data.customCharges = customCharges;
+
+  var total = parseFloat(data.totalAmount) || (consultation + treatmentCharge + xray + pharmacy + customSum);
   var paymentMode = data.paymentMode || 'Cash';
 
   var randomSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -577,13 +626,17 @@ function handlePatientRegistration(ss, data) {
   var docName = (data.doctorConsulted || '').toString().trim();
   if (docName.toLowerCase().indexOf('consulting specialist') !== -1) docName = '';
 
+  var treatmentNos = parseInt(data.treatmentNos || data.nos, 10) || 1;
+  var treatmentRate = parseFloat(data.treatmentRate || data.rate) || (treatmentNos > 0 && treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge);
+
   // Store Invoice in Google Drive
   var driveResult = { fileUrl: '', downloadUrl: '', fileId: '' };
   try {
     var invoiceData = {
       invoiceNo: invoiceNo,
       timestamp: timestamp,
-      fullName: data.fullName || 'Valued Patient',
+      date: data.date || (timestamp.indexOf(' ') !== -1 ? timestamp.split(' ')[0] : timestamp),
+      fullName: data.fullName || data.name || 'Valued Patient',
       phone: data.phone || '',
       address: data.address || data.email || '',
       email: data.address || data.email || '',
@@ -596,8 +649,10 @@ function handlePatientRegistration(ss, data) {
       diseaseHistory: data.drugAllergies || data.diseaseHistory || '',
       drugAllergies: data.drugAllergies || data.diseaseHistory || '',
       treatment: data.treatment || data.diseaseHistory || '',
-      treatmentCharge: parseFloat(data.treatmentCharge) || 0,
-      customCharges: data.customCharges || [],
+      treatmentCharge: treatmentCharge,
+      treatmentNos: treatmentNos,
+      treatmentRate: treatmentRate,
+      customCharges: customCharges,
       consultationCharge: consultation,
       xrayCharge: xray,
       pharmacyCharge: pharmacy,
@@ -624,7 +679,7 @@ function handlePatientRegistration(ss, data) {
     diseaseHistory: data.drugAllergies || data.diseaseHistory || '',
     drugAllergies: data.drugAllergies || data.diseaseHistory || '',
     treatment: data.treatment || data.diseaseHistory || '',
-    treatmentCharge: parseFloat(data.treatmentCharge) || 0,
+    treatmentCharge: treatmentCharge,
     lastVisitDate: data.lastVisitDate || data.date || timestamp,
     doctorConsulted: docName,
     consultationCharge: consultation,
@@ -659,48 +714,7 @@ function handlePatientRegistration(ss, data) {
   // 2. ALWAYS record in dedicated "Invoices" tab dynamically aligned with headers
   try {
     var invoicesSheet = getInvoicesSheet(ss);
-    var invHeaderVals = invoicesSheet.getRange(1, 1, 1, Math.max(invoicesSheet.getLastColumn(), 1)).getValues()[0];
-    var invRow = [];
-    for (var ic = 0; ic < invHeaderVals.length; ic++) {
-      var ih = (invHeaderVals[ic] || '').toString().toLowerCase().trim();
-      var ival = '';
-      if (ih.indexOf('invoice') !== -1 || ih.indexOf('bill') !== -1) ival = invoiceNo;
-      else if (ih.indexOf('op') !== -1) ival = data.opNumber || '';
-      else if (ih.indexOf('time') !== -1 || ih.indexOf('date') !== -1) ival = timestamp;
-      else if (ih.indexOf('patient') !== -1 || (ih.indexOf('name') !== -1 && ih.indexOf('doctor') === -1)) ival = data.fullName || data.name || '';
-      else if (ih.indexOf('phone') !== -1 || ih.indexOf('mobile') !== -1) ival = phoneStr;
-      else if (ih.indexOf('doctor') !== -1) ival = docName || '';
-      else if (ih.indexOf('treatment charge') !== -1 || ih.indexOf('procedure charge') !== -1) ival = (parseFloat(data.treatmentCharge) || 0).toFixed(2);
-      else if (ih.indexOf('treatment nos') !== -1 || ih.indexOf('nos') !== -1) ival = (data.treatmentNos || data.nos || 1).toString();
-      else if (ih.indexOf('treatment rate') !== -1 || ih.indexOf('rate') !== -1) ival = (parseFloat(data.treatmentRate || data.rate) || parseFloat(data.treatmentCharge) || 0).toFixed(2);
-      else if (ih.indexOf('treatment') !== -1) ival = data.treatment || data.diseaseHistory || '';
-      else if (ih.indexOf('consult') !== -1) ival = consultation.toFixed(2);
-      else if (ih.indexOf('xray') !== -1 || ih.indexOf('x-ray') !== -1) ival = xray.toFixed(2);
-      else if (ih.indexOf('pharm') !== -1 || ih.indexOf('med') !== -1) ival = pharmacy.toFixed(2);
-      else if (ih.indexOf('custom') !== -1 || ih.indexOf('extra') !== -1) ival = Array.isArray(data.customCharges) ? JSON.stringify(data.customCharges) : (data.customCharges ? data.customCharges.toString() : '');
-      else if (ih.indexOf('total') !== -1 || ih.indexOf('amount') !== -1) ival = total.toFixed(2);
-      else if (ih.indexOf('payment') !== -1 || ih.indexOf('mode') !== -1) ival = paymentMode;
-      else if (ih.indexOf('address') !== -1 || ih.indexOf('place') !== -1) ival = data.address || data.email || '';
-      else if (ih.indexOf('drive') !== -1 || ih.indexOf('url') !== -1) ival = driveResult.fileUrl || '';
-      invRow.push(ival);
-    }
-    if (invRow.length === 0) {
-      invRow = [
-        invoiceNo,
-        data.opNumber || '',
-        timestamp,
-        data.fullName || data.name || '',
-        phoneStr,
-        docName || '',
-        consultation.toFixed(2),
-        xray.toFixed(2),
-        pharmacy.toFixed(2),
-        total.toFixed(2),
-        paymentMode,
-        driveResult.fileUrl || ''
-      ];
-    }
-    invoicesSheet.appendRow(invRow);
+    appendInvoiceRowMapped(invoicesSheet, invoiceData, driveResult.fileUrl || '');
   } catch (invErr) {
     Logger.log("Invoices sheet logging notice: " + invErr.toString());
   }
@@ -711,15 +725,21 @@ function handlePatientRegistration(ss, data) {
     invoice: {
       invoiceNo: invoiceNo,
       timestamp: timestamp,
-      fullName: data.fullName || '',
-      phone: data.phone || '',
-      address: data.address || data.email || '',
-      email: data.address || data.email || '',
-      age: data.age || '',
-      dob: data.dob || (data.age ? (data.age + ' yrs') : ''),
-      opNumber: data.opNumber || '',
-      gender: data.gender || '',
-      doctorConsulted: data.doctorConsulted || '',
+      date: invoiceData.date,
+      fullName: invoiceData.fullName,
+      phone: invoiceData.phone,
+      address: invoiceData.address,
+      email: invoiceData.email,
+      age: invoiceData.age,
+      dob: invoiceData.dob || (data.age ? (data.age + ' yrs') : ''),
+      opNumber: invoiceData.opNumber,
+      gender: invoiceData.gender,
+      doctorConsulted: invoiceData.doctorConsulted,
+      treatment: invoiceData.treatment,
+      treatmentCharge: invoiceData.treatmentCharge,
+      treatmentNos: invoiceData.treatmentNos,
+      treatmentRate: invoiceData.treatmentRate,
+      customCharges: invoiceData.customCharges,
       consultationCharge: consultation,
       xrayCharge: xray,
       pharmacyCharge: pharmacy,
@@ -736,11 +756,25 @@ function handlePatientRegistration(ss, data) {
  */
 function handleGenerateInvoice(ss, data) {
   var timestamp = data.timestamp || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
-  var phoneStr = data.phone ? "'" + data.phone.toString().trim() : '';
   var consultation = parseFloat(data.consultationCharge) || 0;
+  var treatmentCharge = parseFloat(data.treatmentCharge) || 0;
   var xray = parseFloat(data.xrayCharge) || 0;
   var pharmacy = parseFloat(data.pharmacyCharge) || 0;
-  var total = parseFloat(data.totalAmount) || (consultation + xray + pharmacy);
+
+  var customCharges = [];
+  if (Array.isArray(data.customCharges)) {
+    customCharges = data.customCharges;
+  } else if (typeof data.customCharges === 'string' && data.customCharges.trim().length > 0) {
+    try {
+      var parsedCustom = JSON.parse(data.customCharges.trim());
+      if (Array.isArray(parsedCustom)) customCharges = parsedCustom;
+    } catch(e) {}
+  }
+  var customSum = 0;
+  for (var ci = 0; ci < customCharges.length; ci++) {
+    customSum += (parseFloat(customCharges[ci].amount) || 0);
+  }
+  var total = parseFloat(data.totalAmount) || (consultation + treatmentCharge + xray + pharmacy + customSum);
   var paymentMode = data.paymentMode || 'Cash';
 
   var randomSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -750,15 +784,27 @@ function handleGenerateInvoice(ss, data) {
   var doc = (data.doctorConsulted || '').toString().trim();
   if (doc.toLowerCase().indexOf('consulting specialist') !== -1) doc = '';
 
+  var treatmentNos = parseInt(data.treatmentNos || data.nos, 10) || 1;
+  var treatmentRate = parseFloat(data.treatmentRate || data.rate) || (treatmentNos > 0 && treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge);
+
   var invoiceData = {
     invoiceNo: invoiceNo,
     timestamp: timestamp,
-    fullName: data.fullName || data.patientName || 'Valued Patient',
-    phone: data.phone || '',
-    email: data.email || '',
-    dob: data.dob || '',
+    date: data.date || (timestamp.indexOf(' ') !== -1 ? timestamp.split(' ')[0] : timestamp),
+    opNumber: (data.opNumber || '').toString().trim(),
+    fullName: data.fullName || data.patientName || data.name || 'Valued Patient',
+    phone: (data.phone || '').toString().trim(),
+    address: data.address || data.email || '',
+    email: data.email || data.address || '',
+    dob: data.dob || data.age || '',
+    age: data.age || data.dob || '',
     gender: data.gender || '',
     doctorConsulted: doc || 'Attending Doctor',
+    treatment: data.treatment || data.diseaseHistory || '',
+    treatmentCharge: treatmentCharge,
+    treatmentNos: treatmentNos,
+    treatmentRate: treatmentRate,
+    customCharges: customCharges,
     consultationCharge: consultation,
     xrayCharge: xray,
     pharmacyCharge: pharmacy,
@@ -769,19 +815,7 @@ function handleGenerateInvoice(ss, data) {
   var driveResult = saveInvoiceToGoogleDrive(invoiceData);
 
   var invoicesSheet = getInvoicesSheet(ss);
-  invoicesSheet.appendRow([
-    invoiceNo,
-    timestamp,
-    invoiceData.fullName,
-    phoneStr,
-    invoiceData.doctorConsulted,
-    consultation.toFixed(2),
-    xray.toFixed(2),
-    pharmacy.toFixed(2),
-    total.toFixed(2),
-    paymentMode,
-    driveResult.fileUrl || ''
-  ]);
+  appendInvoiceRowMapped(invoicesSheet, invoiceData, driveResult.fileUrl || '');
 
   return createJsonResponse({
     status: 'success',
@@ -789,10 +823,19 @@ function handleGenerateInvoice(ss, data) {
     invoice: {
       invoiceNo: invoiceNo,
       timestamp: timestamp,
+      date: invoiceData.date,
+      opNumber: invoiceData.opNumber,
       fullName: invoiceData.fullName,
-      phone: data.phone || '',
-      email: data.email || '',
+      patientName: invoiceData.fullName,
+      phone: invoiceData.phone,
+      address: invoiceData.address,
+      email: invoiceData.email,
       doctorConsulted: invoiceData.doctorConsulted,
+      treatment: invoiceData.treatment,
+      treatmentCharge: invoiceData.treatmentCharge,
+      treatmentNos: invoiceData.treatmentNos,
+      treatmentRate: invoiceData.treatmentRate,
+      customCharges: invoiceData.customCharges,
       consultationCharge: consultation,
       xrayCharge: xray,
       pharmacyCharge: pharmacy,
@@ -1192,12 +1235,22 @@ function buildInvoiceHtml(inv) {
       var xAmt = parseFloat(inv.xrayCharge) || 0;
       var pAmt = parseFloat(inv.pharmacyCharge) || 0;
       var customs = Array.isArray(inv.customCharges) ? inv.customCharges : [];
-
-      if (cAmt > 0 || (tAmt === 0 && xAmt === 0 && pAmt === 0 && customs.length === 0)) {
-        rows += '<tr><td>' + (idx++) + '</td><td>Doctor Consultation Charge</td><td class="amount">' + cAmt.toFixed(2) + '</td></tr>';
+      var customSum = 0;
+      for (var k = 0; k < customs.length; k++) {
+        customSum += (parseFloat(customs[k].amount) || 0);
       }
-      if (tAmt > 0) {
+      var tot = parseFloat(inv.totalAmount) || (cAmt + tAmt + xAmt + pAmt + customSum);
+
+      if (tAmt === 0 && inv.treatment && inv.treatment.trim().length > 0) {
+        var remainder = tot - (cAmt + xAmt + pAmt + customSum);
+        if (remainder > 0) tAmt = remainder;
+      }
+
+      if (inv.treatment && (tAmt > 0 || (cAmt === 0 && xAmt === 0 && pAmt === 0 && customs.length === 0))) {
         rows += '<tr><td>' + (idx++) + '</td><td>Dental Treatment: ' + (inv.treatment || 'Clinical Procedure') + '</td><td class="amount">' + tAmt.toFixed(2) + '</td></tr>';
+      }
+      if (cAmt > 0) {
+        rows += '<tr><td>' + (idx++) + '</td><td>Doctor Consultation Charge</td><td class="amount">' + cAmt.toFixed(2) + '</td></tr>';
       }
       if (xAmt > 0) {
         rows += '<tr><td>' + (idx++) + '</td><td>X-Ray Examination Charge</td><td class="amount">' + xAmt.toFixed(2) + '</td></tr>';
@@ -1207,9 +1260,12 @@ function buildInvoiceHtml(inv) {
       }
       for (var k = 0; k < customs.length; k++) {
         var c = customs[k];
-        rows += '<tr><td>' + (idx++) + '</td><td>' + (c.title || 'Custom Charge') + '</td><td class="amount">' + (parseFloat(c.amount) || 0).toFixed(2) + '</td></tr>';
+        rows += '<tr><td>' + (idx++) + '</td><td>Extra Charge: ' + (c.title || 'Custom Charge') + '</td><td class="amount">' + (parseFloat(c.amount) || 0).toFixed(2) + '</td></tr>';
       }
-      rows += '<tr class="total-row"><td colspan="2" style="text-align:right;">Total Amount Due:</td><td class="amount">' + parseFloat(inv.totalAmount).toFixed(2) + '</td></tr>';
+      if (!rows) {
+        rows += '<tr><td>' + (idx++) + '</td><td>Dental Consultation & Services</td><td class="amount">' + tot.toFixed(2) + '</td></tr>';
+      }
+      rows += '<tr class="total-row"><td colspan="2" style="text-align:right;">Total Amount Due:</td><td class="amount">' + tot.toFixed(2) + '</td></tr>';
       return rows;
     })() +
     '  </tbody>' +

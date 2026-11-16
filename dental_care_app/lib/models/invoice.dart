@@ -42,6 +42,8 @@ class Invoice {
   final String paymentMode; // 'Cash', 'UPI / Online', 'Card', 'Pending'
   final String notes;
 
+  String get doctorConsulted => doctor;
+
   Invoice({
     required this.id,
     required this.patientName,
@@ -102,6 +104,29 @@ class Invoice {
       totalAmount: totalAmount ?? this.totalAmount,
       paymentMode: paymentMode ?? this.paymentMode,
       notes: notes ?? this.notes,
+    );
+  }
+
+  Invoice mergeWith(Invoice other) {
+    return Invoice(
+      id: id.isNotEmpty ? id : other.id,
+      patientName: patientName.isNotEmpty ? patientName : other.patientName,
+      phone: phone.isNotEmpty ? phone : other.phone,
+      doctor: (doctor.isNotEmpty && doctor != 'Dr. Jeswin Jose BDS') ? doctor : other.doctor,
+      date: date.isNotEmpty ? date : other.date,
+      address: address.isNotEmpty ? address : other.address,
+      opNumber: opNumber.isNotEmpty ? opNumber : other.opNumber,
+      consultationCharge: consultationCharge > 0 ? consultationCharge : other.consultationCharge,
+      xrayCharge: xrayCharge > 0 ? xrayCharge : other.xrayCharge,
+      pharmacyCharge: pharmacyCharge > 0 ? pharmacyCharge : other.pharmacyCharge,
+      treatmentCharge: treatmentCharge > 0 ? treatmentCharge : other.treatmentCharge,
+      treatment: treatment.isNotEmpty ? treatment : other.treatment,
+      treatmentNos: treatmentNos > 1 ? treatmentNos : other.treatmentNos,
+      treatmentRate: treatmentRate > 0 ? treatmentRate : other.treatmentRate,
+      customCharges: customCharges.isNotEmpty ? customCharges : other.customCharges,
+      totalAmount: totalAmount > 0 ? totalAmount : other.totalAmount,
+      paymentMode: (paymentMode.isNotEmpty && paymentMode != 'Cash') ? paymentMode : (other.paymentMode.isNotEmpty ? other.paymentMode : 'Cash'),
+      notes: notes.isNotEmpty ? notes : other.notes,
     );
   }
 

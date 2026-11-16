@@ -241,6 +241,11 @@ class InvoiceReceiptDialog extends StatelessWidget {
                     <span class="meta-sep">:</span>
                     <span class="meta-val">${inv.patientName}</span>
                 </div>
+                ${inv.phone.isNotEmpty ? '''<div class="meta-field">
+                    <span class="meta-label">Phone</span>
+                    <span class="meta-sep">:</span>
+                    <span class="meta-val">${inv.phone}</span>
+                </div>''' : ''}
                 <div class="meta-field">
                     <span class="meta-label">Address</span>
                     <span class="meta-sep">:</span>
@@ -250,6 +255,7 @@ class InvoiceReceiptDialog extends StatelessWidget {
             <div class="meta-right" style="text-align: right;">
                 <div>Date : $dateStr</div>
                 <div style="margin-top: 4px;">OP No : ${inv.opNumber.isNotEmpty ? inv.opNumber : '-'}</div>
+                ${inv.doctorConsulted.isNotEmpty ? '''<div style="margin-top: 4px;">Doctor : ${inv.doctorConsulted}</div>''' : ''}
             </div>
         </div>
 
@@ -387,6 +393,17 @@ class InvoiceReceiptDialog extends StatelessWidget {
                         pw.Text(':  ', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                         pw.Text(inv.patientName, style: const pw.TextStyle(fontSize: 10)),
                       ]),
+                      if (inv.phone.isNotEmpty) ...[
+                        pw.SizedBox(height: 4),
+                        pw.Row(children: [
+                          pw.Container(
+                            width: 55,
+                            child: pw.Text('Phone', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                          ),
+                          pw.Text(':  ', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                          pw.Text(inv.phone, style: const pw.TextStyle(fontSize: 10)),
+                        ]),
+                      ],
                       pw.SizedBox(height: 4),
                       pw.Row(children: [
                         pw.Container(
@@ -405,6 +422,10 @@ class InvoiceReceiptDialog extends StatelessWidget {
                       if (inv.opNumber.isNotEmpty) ...[
                         pw.SizedBox(height: 4),
                         pw.Text('OP No : ${inv.opNumber}', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                      ],
+                      if (inv.doctorConsulted.isNotEmpty) ...[
+                        pw.SizedBox(height: 4),
+                        pw.Text('Doctor : ${inv.doctorConsulted}', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                       ],
                     ],
                   ),
@@ -707,7 +728,7 @@ class InvoiceReceiptDialog extends StatelessWidget {
 *Bill No:* ${cleanBillNo(inv.id)}
 ${inv.opNumber.isNotEmpty ? '*OP No:* ${inv.opNumber}\n' : ''}*Date:* ${formatDate(inv.date)}
 *Patient Name:* ${inv.patientName}
-${inv.address.isNotEmpty ? '*Address:* ${inv.address}\n' : ''}*TREATMENTS / CHARGES:*
+${inv.phone.isNotEmpty ? '*Phone:* ${inv.phone}\n' : ''}${inv.doctorConsulted.isNotEmpty ? '*Doctor:* ${inv.doctorConsulted}\n' : ''}${inv.address.isNotEmpty ? '*Address:* ${inv.address}\n' : ''}*TREATMENTS / CHARGES:*
 ${breakdownList.join('\n')}
 ────────────────────────
 *Net Amount Rs:* ${inv.totalAmount.toStringAsFixed(2)}
@@ -770,10 +791,10 @@ ${breakdownList.join('\n')}
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
+                  const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'MANJALY MULTI SPECIALITY DENTAL CARE',
                           style: TextStyle(
@@ -831,6 +852,16 @@ ${breakdownList.join('\n')}
                           Text(invoice.patientName, style: const TextStyle(fontSize: 12, color: Colors.black)),
                         ],
                       ),
+                      if (invoice.phone.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const SizedBox(width: 60, child: Text('Phone', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black))),
+                            const Text(':  ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black)),
+                            Text(invoice.phone, style: const TextStyle(fontSize: 12, color: Colors.black)),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 4),
                       Row(
                         children: [
@@ -847,6 +878,10 @@ ${breakdownList.join('\n')}
                       Text('Date : $dateStr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black)),
                       const SizedBox(height: 4),
                       Text('OP No : ${invoice.opNumber.isNotEmpty ? invoice.opNumber : '-'}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black)),
+                      if (invoice.doctorConsulted.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text('Doctor : ${invoice.doctorConsulted}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black)),
+                      ],
                     ],
                   ),
                 ],

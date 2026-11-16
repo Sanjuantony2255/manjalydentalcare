@@ -74,9 +74,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const closeCreateInvModalBtn = document.getElementById('closeCreateInvModalBtn');
     const cancelCreateInvBtn = document.getElementById('cancelCreateInvBtn');
     const createInvoiceForm = document.getElementById('createInvoiceForm');
+    const createInvTreatment = document.getElementById('createInvTreatment');
+    const createInvTreatmentCharge = document.getElementById('createInvTreatmentCharge');
     const createInvConsultation = document.getElementById('createInvConsultation');
     const createInvXray = document.getElementById('createInvXray');
     const createInvPharmacy = document.getElementById('createInvPharmacy');
+    const addCreateInvCustomBtn = document.getElementById('addCreateInvCustomBtn');
+    const createInvCustomChargesList = document.getElementById('createInvCustomChargesList');
     const createInvPaymentMode = document.getElementById('createInvPaymentMode');
     const createInvDisplayTotal = document.getElementById('createInvDisplayTotal');
     const submitCreateInvBtn = document.getElementById('submitCreateInvBtn');
@@ -1353,28 +1357,92 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Edit charges directly from invoice viewer
+    // Helper to extract custom charges from Create Invoice modal
+    function getCreateInvCustomChargesData() {
+        const list = [];
+        if (!createInvCustomChargesList) return list;
+        createInvCustomChargesList.querySelectorAll('.custom-charge-row').forEach(row => {
+            const titleInput = row.querySelector('.charge-title-input');
+            const amtInput = row.querySelector('.charge-amt-input');
+            const title = (titleInput ? titleInput.value : '').trim();
+            const amount = parseFloat(amtInput ? amtInput.value : 0) || 0;
+            if (title || amount > 0) {
+                list.push({ title: title || 'Custom Charge', amount });
+            }
+        });
+        return list;
+    }
+
+    // Dynamic row builder for custom extra charges in Create Invoice modal
+    function addCreateInvCustomChargeRow(initialTitle = '', initialAmount = '') {
+        if (!createInvCustomChargesList) return;
+        const row = document.createElement('div');
+        row.className = 'custom-charge-row';
+        row.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+        row.innerHTML = `
+            <input type="text" class="charge-title-input" placeholder="Charge Name (e.g. Scaling, Lab Fee)" value="${escapeHtml(initialTitle)}" style="flex: 2; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem;">
+            <input type="number" class="charge-amt-input" min="0" step="any" placeholder="Amount (₹)" value="${initialAmount}" style="flex: 1; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem;">
+            <button type="button" class="btn-remove-charge" title="Remove" style="background: #fee2e2; color: #dc2626; border: none; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center;">&times;</button>
+        `;
+        row.querySelector('.charge-title-input').addEventListener('input', calculateCreateInvTotal);
+        row.querySelector('.charge-amt-input').addEventListener('input', calculateCreateInvTotal);
+        row.querySelector('.btn-remove-charge').addEventListener('click', () => {
+            row.remove();
+            calculateCreateInvTotal();
+        });
+        createInvCustomChargesList.appendChild(row);
+        calculateCreateInvTotal();
+    }
+
+    if (addCreateInvCustomBtn) {
+        addCreateInvCustomBtn.addEventListener('click', () => {
+            addCreateInvCustomChargeRow('', '');
+        });
+    }
+
     if (editInvoiceChargesBtn) {
         editInvoiceChargesBtn.addEventListener('click', () => {
             closeInvoiceModal();
-            openCreateInvoiceModal(pendingInvoiceVisit, currentPatientProfile);
-            if (currentSelectedInvoice) {
-                createInvConsultation.value = currentSelectedInvoice.consultationCharge || '';
-                createInvXray.value = currentSelectedInvoice.xrayCharge || '';
-                createInvPharmacy.value = currentSelectedInvoice.pharmacyCharge || '';
-                if (createInvPaymentMode && currentSelectedInvoice.paymentMode) {
-                    createInvPaymentMode.value = currentSelectedInvoice.paymentMode;
-                }
-                calculateCreateInvTotal();
-            }
+            openCreateInvoiceModal(currentSelectedInvoice || pendingInvoiceVisit, currentPatientProfile);
         });
     }
 
     // Create Invoice Modal Logic
     function openCreateInvoiceModal(visit, profile) {
-        createInvConsultation.value = '';
-        createInvXray.value = '';
-        createInvPharmacy.value = '';
-        createInvDisplayTotal.textContent = '0.00';
+        pendingInvoiceVisit = visit || null;
+
+        const effectiveProfile = profile || currentPatientProfile;
+        const effectiveVisit = visit || pendingInvoiceVisit || {};
+
+        if (createInvTreatment) {
+            createInvTreatment.value = effectiveVisit.treatment || effectiveVisit.diseaseHistory || (effectiveProfile ? effectiveProfile.diseaseHistory : '') || '';
+        }
+        if (createInvTreatmentCharge) {
+            createInvTreatmentCharge.value = (parseFloat(effectiveVisit.treatmentCharge) > 0) ? effectiveVisit.treatmentCharge : '';
+        }
+        if (createInvConsultation) {
+            createInvConsultation.value = (parseFloat(effectiveVisit.consultationCharge) > 0) ? effectiveVisit.consultationCharge : '';
+        }
+        if (createInvXray) {
+            createInvXray.value = (parseFloat(effectiveVisit.xrayCharge) > 0) ? effectiveVisit.xrayCharge : '';
+        }
+        if (createInvPharmacy) {
+            createInvPharmacy.value = (parseFloat(effectiveVisit.pharmacyCharge) > 0) ? effectiveVisit.pharmacyCharge : '';
+        }
+        if (createInvPaymentMode) {
+            createInvPaymentMode.value = effectiveVisit.paymentMode || 'Cash';
+        }
+
+        if (createInvCustomChargesList) {
+            createInvCustomChargesList.innerHTML = '';
+            if (Array.isArray(effectiveVisit.customCharges) && effectiveVisit.customCharges.length > 0) {
+                effectiveVisit.customCharges.forEach(c => {
+                    addCreateInvCustomChargeRow(c.title || '', c.amount || '');
+                });
+            }
+        }
+
+        calculateCreateInvTotal();
         createInvoiceModalOverlay.classList.add('active');
     }
 
@@ -1386,41 +1454,62 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cancelCreateInvBtn) cancelCreateInvBtn.addEventListener('click', closeCreateInvoiceModal);
 
     function calculateCreateInvTotal() {
-        const c = parseFloat(createInvConsultation.value) || 0;
-        const x = parseFloat(createInvXray.value) || 0;
-        const p = parseFloat(createInvPharmacy.value) || 0;
-        const tot = c + x + p;
-        createInvDisplayTotal.textContent = tot.toFixed(2);
+        const t = parseFloat(createInvTreatmentCharge ? createInvTreatmentCharge.value : 0) || 0;
+        const c = parseFloat(createInvConsultation ? createInvConsultation.value : 0) || 0;
+        const x = parseFloat(createInvXray ? createInvXray.value : 0) || 0;
+        const p = parseFloat(createInvPharmacy ? createInvPharmacy.value : 0) || 0;
+        let customs = 0;
+        if (createInvCustomChargesList) {
+            createInvCustomChargesList.querySelectorAll('.charge-amt-input').forEach(inp => {
+                customs += (parseFloat(inp.value) || 0);
+            });
+        }
+        const tot = t + c + x + p + customs;
+        if (createInvDisplayTotal) createInvDisplayTotal.textContent = tot.toFixed(2);
     }
 
-    createInvConsultation.addEventListener('input', calculateCreateInvTotal);
-    createInvXray.addEventListener('input', calculateCreateInvTotal);
-    createInvPharmacy.addEventListener('input', calculateCreateInvTotal);
+    if (createInvTreatmentCharge) createInvTreatmentCharge.addEventListener('input', calculateCreateInvTotal);
+    if (createInvConsultation) createInvConsultation.addEventListener('input', calculateCreateInvTotal);
+    if (createInvXray) createInvXray.addEventListener('input', calculateCreateInvTotal);
+    if (createInvPharmacy) createInvPharmacy.addEventListener('input', calculateCreateInvTotal);
 
     createInvoiceForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
-        const consultation = parseFloat(createInvConsultation.value) || 0;
-        const xray = parseFloat(createInvXray.value) || 0;
-        const pharmacy = parseFloat(createInvPharmacy.value) || 0;
-        const total = consultation + xray + pharmacy;
-        const paymentMode = createInvPaymentMode.value;
+        const treatment = createInvTreatment ? createInvTreatment.value.trim() : '';
+        const treatmentCharge = parseFloat(createInvTreatmentCharge ? createInvTreatmentCharge.value : 0) || 0;
+        const consultation = parseFloat(createInvConsultation ? createInvConsultation.value : 0) || 0;
+        const xray = parseFloat(createInvXray ? createInvXray.value : 0) || 0;
+        const pharmacy = parseFloat(createInvPharmacy ? createInvPharmacy.value : 0) || 0;
+        const customCharges = getCreateInvCustomChargesData();
+        const customSum = customCharges.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+        const total = treatmentCharge + consultation + xray + pharmacy + customSum;
+        const paymentMode = createInvPaymentMode ? createInvPaymentMode.value : 'Cash';
 
         submitCreateInvBtn.disabled = true;
         createInvLoader.style.display = 'block';
 
+        const effectiveProfile = currentPatientProfile || {};
+        const effectiveVisit = pendingInvoiceVisit || {};
+
         const payload = {
             action: 'generateInvoice',
-            fullName: (pendingInvoiceVisit && pendingInvoiceVisit.fullName) || (currentPatientProfile && currentPatientProfile.fullName) || 'Patient',
-            phone: (pendingInvoiceVisit && pendingInvoiceVisit.phone) || (currentPatientProfile && currentPatientProfile.phone) || '',
-            email: (pendingInvoiceVisit && pendingInvoiceVisit.email) || (currentPatientProfile && currentPatientProfile.email) || '',
-            doctorConsulted: (pendingInvoiceVisit && pendingInvoiceVisit.doctorConsulted) || 'Attending Doctor',
+            opNumber: effectiveVisit.opNumber || effectiveProfile.opNumber || '',
+            fullName: effectiveVisit.fullName || effectiveVisit.patientName || effectiveProfile.fullName || 'Valued Patient',
+            patientName: effectiveVisit.fullName || effectiveVisit.patientName || effectiveProfile.fullName || 'Valued Patient',
+            phone: effectiveVisit.phone || effectiveProfile.phone || '',
+            address: effectiveVisit.address || effectiveProfile.address || '',
+            email: effectiveVisit.email || effectiveProfile.email || '',
+            doctorConsulted: effectiveVisit.doctorConsulted || effectiveProfile.doctorConsulted || 'Dr. Jeswin Jose BDS',
+            treatment: treatment,
+            treatmentCharge: treatmentCharge,
+            customCharges: customCharges,
             consultationCharge: consultation,
             xrayCharge: xray,
             pharmacyCharge: pharmacy,
             totalAmount: total,
             paymentMode: paymentMode,
-            timestamp: new Date().toLocaleString()
+            timestamp: effectiveVisit.timestamp || new Date().toLocaleString()
         };
 
         try {
@@ -1430,31 +1519,55 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify(payload)
             });
             const text = await res.text();
-            const result = JSON.parse(text);
+            let result;
+            try {
+                result = JSON.parse(text);
+            } catch(pe) {
+                throw new Error('Server returned unexpected format: ' + text.substring(0, 80));
+            }
 
             if (result.status === 'success' && result.invoice) {
                 closeCreateInvoiceModal();
-                currentSelectedInvoice = result.invoice;
+                currentSelectedInvoice = {
+                    ...payload,
+                    ...result.invoice,
+                    treatment: treatment || result.invoice.treatment || '',
+                    treatmentCharge: treatmentCharge,
+                    customCharges: customCharges,
+                    totalAmount: total
+                };
                 populateAndOpenViewModal(currentSelectedInvoice);
 
                 if (pendingInvoiceVisit) {
+                    pendingInvoiceVisit.treatment = treatment;
+                    pendingInvoiceVisit.treatmentCharge = treatmentCharge;
+                    pendingInvoiceVisit.customCharges = customCharges;
                     pendingInvoiceVisit.consultationCharge = consultation;
                     pendingInvoiceVisit.xrayCharge = xray;
                     pendingInvoiceVisit.pharmacyCharge = pharmacy;
                     pendingInvoiceVisit.totalAmount = total;
-                    pendingInvoiceVisit.invoiceNo = result.invoice.invoiceNo;
-                    pendingInvoiceVisit.driveFileUrl = result.invoice.driveFileUrl;
+                    pendingInvoiceVisit.invoiceNo = currentSelectedInvoice.invoiceNo;
+                    pendingInvoiceVisit.driveFileUrl = currentSelectedInvoice.driveFileUrl;
                 }
 
-                cachedInvoicesList.unshift(result.invoice);
-                searchBtn.click();
-                showToast('Invoice Saved', `Invoice ${result.invoice.invoiceNo} successfully created!`, 'success');
+                // Update cache
+                try {
+                    const localRaw = localStorage.getItem('dental_cached_invoices');
+                    const localList = localRaw ? JSON.parse(localRaw) : [];
+                    const cIdx = localList.findIndex(i => (i.invoiceNo || i.id) === currentSelectedInvoice.invoiceNo);
+                    if (cIdx >= 0) localList[cIdx] = currentSelectedInvoice;
+                    else localList.unshift(currentSelectedInvoice);
+                    localStorage.setItem('dental_cached_invoices', JSON.stringify(localList.slice(0, 100)));
+                } catch(e) {}
+
+                cachedInvoicesList.unshift(currentSelectedInvoice);
+                showToast('Invoice Saved', `Invoice ${currentSelectedInvoice.invoiceNo} successfully recorded and displayed!`, 'success');
             } else {
                 alert(result.message || 'Error generating invoice. Please try again.');
             }
         } catch (err) {
             console.error('Invoice error:', err);
-            showToast('Invoice Save Error', 'Failed to connect to Google Apps Script backend.', 'error');
+            showToast('Invoice Save Error', err.message || 'Failed to connect to Google Apps Script backend.', 'error');
         } finally {
             submitCreateInvBtn.disabled = false;
             createInvLoader.style.display = 'none';

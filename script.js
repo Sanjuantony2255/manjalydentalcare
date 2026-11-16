@@ -947,7 +947,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const treatAmt = parseFloat(inv.treatmentCharge) || 0;
             const xrayAmt = parseFloat(inv.xrayCharge) || 0;
             const pharmAmt = parseFloat(inv.pharmacyCharge) || 0;
-            const total = parseFloat(inv.totalAmount) || (consultAmt + treatAmt + xrayAmt + pharmAmt);
             const customList = Array.isArray(inv.customCharges) ? inv.customCharges : [];
             const customSum = customList.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
             const total = parseFloat(inv.totalAmount) || (consultAmt + treatAmt + xrayAmt + pharmAmt + customSum);
@@ -1208,17 +1207,19 @@ Wishing you good oral health!
         const tAmt = parseFloat(inv.treatmentCharge) || 0;
         const xAmt = parseFloat(inv.xrayCharge) || 0;
         const pAmt = parseFloat(inv.pharmacyCharge) || 0;
-        const total = parseFloat(inv.totalAmount) || (cAmt + tAmt + xAmt + pAmt);
         const customs = Array.isArray(inv.customCharges) ? inv.customCharges : [];
+        const customSum = customs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+        const total = parseFloat(inv.totalAmount) || (cAmt + tAmt + xAmt + pAmt + customSum);
 
         const formatNum = (n) => (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         let rowsHtml = '';
         let rIdx = 1;
 
         if (inv.treatment && inv.treatment.trim().length > 0) {
-            const nos = inv.nos || 1;
-            const amt = tAmt > 0 ? tAmt : (total > 0 ? total : 0);
-            const rate = inv.rate ? parseFloat(inv.rate) : (amt / nos);
+            const nos = inv.nos || inv.treatmentNos || 1;
+            let amt = tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum));
+            if (amt < 0) amt = 0;
+            const rate = inv.rate || inv.treatmentRate ? parseFloat(inv.rate || inv.treatmentRate) : (nos > 0 ? (amt / nos) : amt);
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
                 <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(inv.treatment)}</td>

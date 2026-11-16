@@ -435,22 +435,40 @@
             
             <form id="createInvoiceForm" style="padding: 1.5rem 2rem;">
                 <p style="font-size: 0.9rem; color: #64748b; margin-bottom: 1.2rem;">
-                    Confirm or update consultation, X-ray, and pharmacy charges to show and store this invoice in Google Drive & Google Sheets.
+                    Confirm or update consultation, treatment, and custom extra charges to show and store this invoice in Google Drive & Google Sheets.
                 </p>
 
                 <div class="input-grid" style="grid-template-columns: 1fr; gap: 1rem; margin-bottom: 1.2rem;">
                     <div class="input-group">
+                        <input type="text" id="createInvTreatment" placeholder=" ">
+                        <label for="createInvTreatment">Treatment / Procedure Name</label>
+                    </div>
+                    <div class="input-group">
+                        <input type="number" id="createInvTreatmentCharge" min="0" step="any" placeholder=" " value="0">
+                        <label for="createInvTreatmentCharge">Treatment Charge (₹)</label>
+                    </div>
+                    <div class="input-group">
                         <input type="number" id="createInvConsultation" min="0" step="any" placeholder=" " value="0">
-                        <label for="createInvConsultation">Consultation Charge (₹ / $)</label>
+                        <label for="createInvConsultation">Consultation Charge (₹)</label>
                     </div>
                     <div class="input-group">
                         <input type="number" id="createInvXray" min="0" step="any" placeholder=" " value="0">
-                        <label for="createInvXray">X-Ray Charge (₹ / $)</label>
+                        <label for="createInvXray">X-Ray Charge (₹)</label>
                     </div>
                     <div class="input-group">
                         <input type="number" id="createInvPharmacy" min="0" step="any" placeholder=" " value="0">
-                        <label for="createInvPharmacy">Pharmacy / Medicines Charge (₹ / $)</label>
+                        <label for="createInvPharmacy">Pharmacy / Medicines Charge (₹)</label>
                     </div>
+
+                    <!-- Custom Extra Charges Container -->
+                    <div class="custom-charges-container" style="border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px; background: #f8fafc;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-size: 0.85rem; font-weight: 700; color: #1e293b;">➕ Extra / Custom Charges:</span>
+                            <button type="button" id="addCreateInvCustomBtn" class="mini-btn" style="background: #0d9488; color: #fff; padding: 4px 10px; font-size: 0.75rem; border-radius: 5px; cursor: pointer; border: none;">+ Add Extra Charge</button>
+                        </div>
+                        <div id="createInvCustomChargesList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                    </div>
+
                     <div class="input-group">
                         <select id="createInvPaymentMode">
                             <option value="Cash" selected>Cash</option>
