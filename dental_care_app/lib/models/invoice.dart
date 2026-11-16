@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 class CustomChargeItem {
   final String title;
   final double amount;
@@ -13,8 +15,10 @@ class CustomChargeItem {
   };
 
   factory CustomChargeItem.fromJson(Map<String, dynamic> json) => CustomChargeItem(
-    title: json['title'] ?? '',
-    amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
+    title: (json['title'] ?? json['name'] ?? json['description'] ?? '').toString(),
+    amount: (json['amount'] is num)
+        ? (json['amount'] as num).toDouble()
+        : double.tryParse((json['amount'] ?? '').toString().replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0,
   );
 }
 
@@ -59,6 +63,48 @@ class Invoice {
     this.notes = '',
   }) : customCharges = customCharges ?? [];
 
+  Invoice copyWith({
+    String? id,
+    String? patientName,
+    String? phone,
+    String? doctor,
+    String? date,
+    String? address,
+    String? opNumber,
+    double? consultationCharge,
+    double? xrayCharge,
+    double? pharmacyCharge,
+    double? treatmentCharge,
+    String? treatment,
+    int? treatmentNos,
+    double? treatmentRate,
+    List<CustomChargeItem>? customCharges,
+    double? totalAmount,
+    String? paymentMode,
+    String? notes,
+  }) {
+    return Invoice(
+      id: id ?? this.id,
+      patientName: patientName ?? this.patientName,
+      phone: phone ?? this.phone,
+      doctor: doctor ?? this.doctor,
+      date: date ?? this.date,
+      address: address ?? this.address,
+      opNumber: opNumber ?? this.opNumber,
+      consultationCharge: consultationCharge ?? this.consultationCharge,
+      xrayCharge: xrayCharge ?? this.xrayCharge,
+      pharmacyCharge: pharmacyCharge ?? this.pharmacyCharge,
+      treatmentCharge: treatmentCharge ?? this.treatmentCharge,
+      treatment: treatment ?? this.treatment,
+      treatmentNos: treatmentNos ?? this.treatmentNos,
+      treatmentRate: treatmentRate ?? this.treatmentRate,
+      customCharges: customCharges ?? List.from(this.customCharges),
+      totalAmount: totalAmount ?? this.totalAmount,
+      paymentMode: paymentMode ?? this.paymentMode,
+      notes: notes ?? this.notes,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'patientName': patientName,
@@ -81,32 +127,76 @@ class Invoice {
   };
 
   factory Invoice.fromJson(Map<String, dynamic> json) {
-    final tCharge = (json['treatmentCharge'] as num?)?.toDouble() ?? 0.0;
-    final tNos = (json['treatmentNos'] as num?)?.toInt() ?? 1;
-    final tRate = (json['treatmentRate'] as num?)?.toDouble() ?? (tNos > 0 && tCharge > 0 ? (tCharge / tNos) : tCharge);
+    double parseNum(dynamic val) {
+      if (val == null) return 0.0;
+      if (val is num) return val.toDouble();
+      final s = val.toString().replaceAll(RegExp(r'[^0-9.]'), '');
+      return double.tryParse(s) ?? 0.0;
+    }
+
+    final tCharge = parseNum(json['treatmentCharge']);
+    final rawNos = json['treatmentNos'];
+    final tNos = rawNos is num ? rawNos.toInt() : (int.tryParse(rawNos?.toString() ?? '') ?? 1);
+    final rawRate = parseNum(json['treatmentRate']);
+    final tRate = rawRate > 0 ? rawRate : (tNos > 0 && tCharge > 0 ? (tCharge / tNos) : tCharge);
+
+    List<CustomChargeItem> parsedCustom = [];
+    final rawCustom = json['customCharges'];
+    if (rawCustom is List) {
+      for (final item in rawCustom) {
+        if (item is Map<String, dynamic>) {
+          parsedCustom.add(CustomChargeItem.fromJson(item));
+        } else if (item is Map) {
+          parsedCustom.add(CustomChargeItem.fromJson(Map<String, dynamic>.from(item)));
+        }
+      }
+    } else if (rawCustom is String && rawCustom.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawCustom.trim());
+        if (decoded is List) {
+          for (final item in decoded) {
+            if (item is Map) {
+              parsedCustom.add(CustomChargeItem.fromJson(Map<String, dynamic>.from(item)));
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    final id = (json['id'] ?? json['invoiceNo'] ?? json['invoiceNumber'] ?? json['billNo'] ?? '').toString();
+    final patientName = (json['patientName'] ?? json['fullName'] ?? json['name'] ?? '').toString();
+    final phone = (json['phone'] ?? json['mobile'] ?? '').toString();
+    final doctor = (json['doctor'] ?? json['doctorConsulted'] ?? 'Dr. Jeswin Jose BDS').toString();
+    final date = (json['date'] ?? json['timestamp'] ?? '').toString();
+    final address = (json['address'] ?? json['email'] ?? '').toString();
+    final opNumber = (json['opNumber'] ?? json['op_number'] ?? json['opNo'] ?? json['op'] ?? '').toString().trim();
+    final consultationCharge = parseNum(json['consultationCharge'] ?? json['consultation']);
+    final xrayCharge = parseNum(json['xrayCharge'] ?? json['xray']);
+    final pharmacyCharge = parseNum(json['pharmacyCharge'] ?? json['pharmacy']);
+    final treatment = (json['treatment'] ?? json['procedure'] ?? json['diseaseHistory'] ?? json['notes'] ?? '').toString();
+    final totalAmount = parseNum(json['totalAmount'] ?? json['total']);
+    final paymentMode = (json['paymentMode'] ?? json['payment'] ?? 'Cash').toString();
+    final notes = (json['notes'] ?? '').toString();
 
     return Invoice(
-      id: json['id'] ?? '',
-      patientName: json['patientName'] ?? '',
-      phone: json['phone'] ?? '',
-      doctor: json['doctor'] ?? 'Dr. Jeswin Jose BDS',
-      date: json['date'] ?? '',
-      address: json['address'] ?? '',
-      opNumber: (json['opNumber'] ?? json['op_number'] ?? json['opNo'] ?? json['op'] ?? '').toString().trim(),
-      consultationCharge: (json['consultationCharge'] as num?)?.toDouble() ?? 0.0,
-      xrayCharge: (json['xrayCharge'] as num?)?.toDouble() ?? 0.0,
-      pharmacyCharge: (json['pharmacyCharge'] as num?)?.toDouble() ?? 0.0,
+      id: id,
+      patientName: patientName,
+      phone: phone,
+      doctor: doctor.isNotEmpty ? doctor : 'Dr. Jeswin Jose BDS',
+      date: date,
+      address: address,
+      opNumber: opNumber,
+      consultationCharge: consultationCharge,
+      xrayCharge: xrayCharge,
+      pharmacyCharge: pharmacyCharge,
       treatmentCharge: tCharge,
-      treatment: json['treatment'] ?? '',
-      treatmentNos: tNos,
+      treatment: treatment,
+      treatmentNos: tNos > 0 ? tNos : 1,
       treatmentRate: tRate,
-      customCharges: (json['customCharges'] as List<dynamic>?)
-              ?.map((e) => CustomChargeItem.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          [],
-      totalAmount: (json['totalAmount'] as num?)?.toDouble() ?? 0.0,
-      paymentMode: json['paymentMode'] ?? 'Cash',
-      notes: json['notes'] ?? '',
+      customCharges: parsedCustom,
+      totalAmount: totalAmount > 0 ? totalAmount : (consultationCharge + xrayCharge + pharmacyCharge + tCharge),
+      paymentMode: paymentMode.isNotEmpty ? paymentMode : 'Cash',
+      notes: notes,
     );
   }
 }

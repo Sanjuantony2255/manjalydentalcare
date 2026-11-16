@@ -172,13 +172,118 @@ class StorageService extends ChangeNotifier {
         }
       }
 
-      // Sync Invoices from Google Sheet while PRESERVING all locally created invoices
-      final localCreatedInv = _invoices.where((i) => !cloudInvoices.any((ci) => ci.id == i.id)).toList();
-      _invoices.clear();
-      _invoices.addAll(cloudInvoices);
-      for (final loc in localCreatedInv) {
-        _invoices.insert(0, loc);
+      // Helper function to clean invoice ID for reliable matching
+      String cleanInvId(String s) => s.trim().toLowerCase().replaceAll(RegExp(r'^inv-'), '');
+
+      // Sync Invoices from Google Sheet while preserving and enriching all local invoices
+      final mergedInvoices = <Invoice>[];
+      final processedLocalIds = <String>{};
+
+      for (final ci in cloudInvoices) {
+        final cCleanId = cleanInvId(ci.id);
+        final localIdx = _invoices.indexWhere((li) {
+          final lCleanId = cleanInvId(li.id);
+          final sameId = (cCleanId.isNotEmpty && lCleanId == cCleanId) || (li.id == ci.id);
+          final samePatient = li.patientName.trim().toLowerCase() == ci.patientName.trim().toLowerCase() && li.date == ci.date;
+          return sameId || samePatient;
+        });
+
+        if (localIdx >= 0) {
+          final li = _invoices[localIdx];
+          processedLocalIds.add(li.id);
+
+          // Merge preserving the richer information
+          mergedInvoices.add(li.copyWith(
+            id: li.id.isNotEmpty ? li.id : ci.id,
+            patientName: li.patientName.isNotEmpty ? li.patientName : ci.patientName,
+            phone: li.phone.isNotEmpty ? li.phone : ci.phone,
+            doctor: li.doctor.isNotEmpty && !li.doctor.contains('Attending') ? li.doctor : ci.doctor,
+            date: li.date.isNotEmpty ? li.date : ci.date,
+            address: li.address.isNotEmpty ? li.address : ci.address,
+            opNumber: li.opNumber.isNotEmpty ? li.opNumber : ci.opNumber,
+            consultationCharge: li.consultationCharge > 0 ? li.consultationCharge : ci.consultationCharge,
+            xrayCharge: li.xrayCharge > 0 ? li.xrayCharge : ci.xrayCharge,
+            pharmacyCharge: li.pharmacyCharge > 0 ? li.pharmacyCharge : ci.pharmacyCharge,
+            treatmentCharge: li.treatmentCharge > 0 ? li.treatmentCharge : ci.treatmentCharge,
+            treatment: li.treatment.isNotEmpty ? li.treatment : ci.treatment,
+            treatmentNos: li.treatmentNos > 0 ? li.treatmentNos : ci.treatmentNos,
+            treatmentRate: li.treatmentRate > 0 ? li.treatmentRate : ci.treatmentRate,
+            customCharges: li.customCharges.isNotEmpty ? li.customCharges : ci.customCharges,
+            totalAmount: li.totalAmount > 0 ? li.totalAmount : ci.totalAmount,
+            paymentMode: li.paymentMode.isNotEmpty ? li.paymentMode : ci.paymentMode,
+            notes: li.notes.isNotEmpty ? li.notes : ci.notes,
+          ));
+        } else {
+          mergedInvoices.add(ci);
+        }
       }
+
+      // Add any local invoices that were not present in cloud
+      for (final li in _invoices) {
+        if (!processedLocalIds.contains(li.id)) {
+          mergedInvoices.insert(0, li);
+        }
+      }
+
+      // Cross-enrich any invoice missing opNumber, address, or treatment from patient directory
+      for (int i = 0; i < mergedInvoices.length; i++) {
+        var inv = mergedInvoices[i];
+        final pMatch = _patients.where((p) {
+          final pDigits = p.phone.replaceAll(RegExp(r'\D'), '');
+          final iDigits = inv.phone.replaceAll(RegExp(r'\D'), '');
+          final phoneSame = pDigits.isNotEmpty && iDigits.isNotEmpty && pDigits == iDigits;
+          final nameSame = p.name.trim().toLowerCase() == inv.patientName.trim().toLowerCase();
+          final opSame = p.opNumber.isNotEmpty && inv.opNumber.isNotEmpty && p.opNumber.toLowerCase() == inv.opNumber.toLowerCase();
+          return (p.opNumber.isNotEmpty && inv.opNumber.isNotEmpty && opSame) || (phoneSame && nameSame) || nameSame;
+        });
+
+        if (pMatch.isNotEmpty) {
+          final pat = pMatch.first;
+          var updated = false;
+          String newOp = inv.opNumber;
+          String newAddr = inv.address;
+          String newTreatment = inv.treatment;
+          double newTreatmentCharge = inv.treatmentCharge;
+
+          if (newOp.isEmpty && pat.opNumber.isNotEmpty) {
+            newOp = pat.opNumber;
+            updated = true;
+          }
+          if (newAddr.isEmpty && pat.address.isNotEmpty) {
+            newAddr = pat.address;
+            updated = true;
+          }
+          if (newTreatment.isEmpty) {
+            final vMatch = pat.visits.where((v) => cleanInvId(v.invoiceId) == cleanInvId(inv.id) || v.date == inv.date);
+            if (vMatch.isNotEmpty && vMatch.first.notes.isNotEmpty) {
+              newTreatment = vMatch.first.notes;
+              updated = true;
+            } else if (pat.diseaseHistory.isNotEmpty) {
+              newTreatment = pat.diseaseHistory;
+              updated = true;
+            }
+          }
+          if (newTreatmentCharge <= 0 && newTreatment.isNotEmpty) {
+            final known = inv.consultationCharge + inv.xrayCharge + inv.pharmacyCharge + inv.customCharges.fold<double>(0.0, (s, c) => s + c.amount);
+            if (inv.totalAmount > known) {
+              newTreatmentCharge = inv.totalAmount - known;
+              updated = true;
+            }
+          }
+
+          if (updated) {
+            mergedInvoices[i] = inv.copyWith(
+              opNumber: newOp,
+              address: newAddr,
+              treatment: newTreatment,
+              treatmentCharge: newTreatmentCharge,
+            );
+          }
+        }
+      }
+
+      _invoices.clear();
+      _invoices.addAll(mergedInvoices);
 
       // Sync Inventory from Google Sheet
       _inventory.clear();

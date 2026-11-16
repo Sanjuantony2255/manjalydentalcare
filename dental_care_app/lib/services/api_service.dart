@@ -115,12 +115,15 @@ class ApiService {
           'diseaseHistory': patient.diseaseHistory,
           'treatment': invoice.treatment.isNotEmpty ? invoice.treatment : patient.diseaseHistory,
           'treatmentCharge': invoice.treatmentCharge.toString(),
+          'treatmentNos': invoice.treatmentNos.toString(),
+          'treatmentRate': invoice.treatmentRate.toString(),
           'customCharges': jsonEncode(invoice.customCharges.map((c) => c.toJson()).toList()),
           'consultationCharge': invoice.consultationCharge.toString(),
           'xrayCharge': invoice.xrayCharge.toString(),
           'pharmacyCharge': invoice.pharmacyCharge.toString(),
           'totalAmount': invoice.totalAmount.toString(),
           'paymentMode': invoice.paymentMode,
+          'notes': invoice.notes,
           'date': invoice.date,
           'timestamp': invoice.date,
           'lastVisitDate': invoice.date,
@@ -507,18 +510,26 @@ class ApiService {
           final hasHeader = headers.any((h) =>
               h.toLowerCase().contains('invoice') ||
               h.toLowerCase().contains('name') ||
-              h.toLowerCase().contains('bill'));
+              h.toLowerCase().contains('bill') ||
+              h.toLowerCase().contains('date'));
 
-          final colId = _findCol(headers, ['invoice', 'inv', 'bill', 'id'], 0);
-          final colDate = _findCol(headers, ['date', 'time'], 1);
-          final colName = _findCol(headers, ['patient', 'name'], 2);
-          final colPhone = _findCol(headers, ['phone', 'mobile'], 3);
-          final colDoctor = _findCol(headers, ['doctor'], 4);
-          final colConsult = _findCol(headers, ['consult'], 5);
-          final colXray = _findCol(headers, ['xray', 'x-ray'], 6);
-          final colPharm = _findCol(headers, ['pharm', 'med'], 7);
-          final colTotal = _findCol(headers, ['total', 'amount'], 8);
-          final colPayMode = _findCol(headers, ['mode', 'payment', 'method'], 9);
+          final colId = _findCol(headers, ['invoice no', 'invoice number', 'invoice', 'inv', 'bill', 'id'], 0);
+          final colOp = _findCol(headers, ['op number', 'op no', 'opnum', 'op#', 'op', 'patient id'], -1);
+          final colDate = _findCol(headers, ['date', 'time', 'timestamp'], -1);
+          final colName = _findCol(headers, ['patient name', 'full name', 'patient', 'name'], -1);
+          final colPhone = _findCol(headers, ['phone', 'mobile', 'contact', 'cell'], -1);
+          final colDoctor = _findCol(headers, ['doctor', 'dentist', 'attending', 'consulted'], -1);
+          final colTreatment = _findCol(headers, ['treatment name', 'treatment procedure', 'treatment'], -1);
+          final colTreatmentCharge = _findCol(headers, ['treatment charge', 'procedure charge', 'treatment fee'], -1);
+          final colTreatmentNos = _findCol(headers, ['treatment nos', 'nos', 'qty', 'quantity'], -1);
+          final colTreatmentRate = _findCol(headers, ['treatment rate', 'rate', 'unit price'], -1);
+          final colConsult = _findCol(headers, ['consultation charge', 'consult charge', 'consultation fee', 'consultation', 'consult'], -1);
+          final colXray = _findCol(headers, ['xray', 'x-ray'], -1);
+          final colPharm = _findCol(headers, ['pharm', 'medicin', 'medicine'], -1);
+          final colCustom = _findCol(headers, ['custom charges', 'custom', 'extra'], -1);
+          final colTotal = _findCol(headers, ['total amount', 'total', 'amount', 'fee'], -1);
+          final colPayMode = _findCol(headers, ['payment mode', 'payment', 'mode', 'method'], -1);
+          final colAddress = _findCol(headers, ['address', 'place', 'location', 'city'], -1);
 
           final startIdx = hasHeader ? 1 : 0;
           for (int i = startIdx; i < rows.length; i++) {
@@ -528,12 +539,56 @@ class ApiService {
             final invId = _safeCell(r, colId);
             if (invId.toLowerCase().contains('invoice') && hasHeader) continue;
 
-            final pName = _safeCell(r, colName);
-            final phone = _safeCell(r, colPhone);
-            if (pName.isEmpty && phone.isEmpty) continue;
+            // Handle column fallback if header is absent
+            String rawOp = colOp >= 0 ? _safeCell(r, colOp) : '';
+            String rawDate = colDate >= 0 ? _safeCell(r, colDate) : '';
+            String pName = colName >= 0 ? _safeCell(r, colName) : '';
+            String phone = colPhone >= 0 ? _safeCell(r, colPhone) : '';
+            String rawDoc = colDoctor >= 0 ? _safeCell(r, colDoctor) : '';
+            String rawTreatment = colTreatment >= 0 ? _safeCell(r, colTreatment) : '';
+            String rawTreatmentCharge = colTreatmentCharge >= 0 ? _safeCell(r, colTreatmentCharge) : '';
+            String rawTreatmentNos = colTreatmentNos >= 0 ? _safeCell(r, colTreatmentNos) : '';
+            String rawTreatmentRate = colTreatmentRate >= 0 ? _safeCell(r, colTreatmentRate) : '';
+            String rawConsult = colConsult >= 0 ? _safeCell(r, colConsult) : '';
+            String rawXray = colXray >= 0 ? _safeCell(r, colXray) : '';
+            String rawPharm = colPharm >= 0 ? _safeCell(r, colPharm) : '';
+            String rawCustom = colCustom >= 0 ? _safeCell(r, colCustom) : '';
+            String rawTotal = colTotal >= 0 ? _safeCell(r, colTotal) : '';
+            String rawPayMode = colPayMode >= 0 ? _safeCell(r, colPayMode) : '';
+            String rawAddress = colAddress >= 0 ? _safeCell(r, colAddress) : '';
+
+            // Handle legacy 11 or 12 column format without headers
+            if (!hasHeader) {
+              if (r.length >= 12) {
+                // 0: inv, 1: op, 2: date, 3: name, 4: phone, 5: doc, 6: consult, 7: xray, 8: pharm, 9: total, 10: mode
+                rawOp = _safeCell(r, 1);
+                rawDate = _safeCell(r, 2);
+                pName = _safeCell(r, 3);
+                phone = _safeCell(r, 4);
+                rawDoc = _safeCell(r, 5);
+                rawConsult = _safeCell(r, 6);
+                rawXray = _safeCell(r, 7);
+                rawPharm = _safeCell(r, 8);
+                rawTotal = _safeCell(r, 9);
+                rawPayMode = _safeCell(r, 10);
+              } else if (r.length >= 10) {
+                // 0: inv, 1: date, 2: name, 3: phone, 4: doc, 5: consult, 6: xray, 7: pharm, 8: total, 9: mode
+                rawDate = _safeCell(r, 1);
+                pName = _safeCell(r, 2);
+                phone = _safeCell(r, 3);
+                rawDoc = _safeCell(r, 4);
+                rawConsult = _safeCell(r, 5);
+                rawXray = _safeCell(r, 6);
+                rawPharm = _safeCell(r, 7);
+                rawTotal = _safeCell(r, 8);
+                rawPayMode = _safeCell(r, 9);
+              }
+            }
+
+            if (pName.isEmpty && phone.isEmpty && invId.isEmpty) continue;
             if (isDummyInvoice(invId, pName)) continue;
 
-            String dateStr = _safeCell(r, colDate);
+            String dateStr = rawDate;
             if (dateStr.isEmpty) dateStr = '2026-10-14';
             final dMatch = RegExp(r'^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})').firstMatch(dateStr);
             if (dMatch != null) {
@@ -545,14 +600,28 @@ class ApiService {
               dateStr = dateStr.substring(0, 10);
             }
 
-            final rawDoc = _safeCell(r, colDoctor);
             final doctor = rawDoc.isNotEmpty ? rawDoc : 'Dr. Jeswin Jose BDS';
-            final consult = double.tryParse(_safeCell(r, colConsult).replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-            final xray = double.tryParse(_safeCell(r, colXray).replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-            final pharm = double.tryParse(_safeCell(r, colPharm).replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
-            final rawTot = double.tryParse(_safeCell(r, colTotal).replaceAll(RegExp(r'[^0-9.]'), ''));
-            final total = (rawTot != null && rawTot > 0) ? rawTot : (consult + xray + pharm);
-            final rawPayMode = _safeCell(r, colPayMode);
+            final consult = double.tryParse(rawConsult.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+            final xray = double.tryParse(rawXray.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+            final pharm = double.tryParse(rawPharm.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+            final tCharge = double.tryParse(rawTreatmentCharge.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+            final tNos = int.tryParse(rawTreatmentNos.replaceAll(RegExp(r'[^0-9]'), '')) ?? 1;
+            final tRate = double.tryParse(rawTreatmentRate.replaceAll(RegExp(r'[^0-9.]'), '')) ?? (tNos > 0 && tCharge > 0 ? (tCharge / tNos) : tCharge);
+
+            List<CustomChargeItem> customs = [];
+            if (rawCustom.isNotEmpty) {
+              try {
+                final dec = jsonDecode(rawCustom);
+                if (dec is List) {
+                  for (final item in dec) {
+                    if (item is Map) customs.add(CustomChargeItem.fromJson(Map<String, dynamic>.from(item)));
+                  }
+                }
+              } catch (_) {}
+            }
+
+            final rawTot = double.tryParse(rawTotal.replaceAll(RegExp(r'[^0-9.]'), ''));
+            final total = (rawTot != null && rawTot > 0) ? rawTot : (consult + xray + pharm + tCharge + customs.fold<double>(0.0, (s, c) => s + c.amount));
             final payMode = rawPayMode.isNotEmpty ? rawPayMode : 'Cash';
 
             final inv = Invoice(
@@ -561,9 +630,16 @@ class ApiService {
               phone: phone,
               doctor: doctor,
               date: dateStr,
+              address: rawAddress,
+              opNumber: rawOp,
               consultationCharge: consult,
               xrayCharge: xray,
               pharmacyCharge: pharm,
+              treatmentCharge: tCharge,
+              treatment: rawTreatment,
+              treatmentNos: tNos > 0 ? tNos : 1,
+              treatmentRate: tRate,
+              customCharges: customs,
               totalAmount: total,
               paymentMode: payMode,
             );

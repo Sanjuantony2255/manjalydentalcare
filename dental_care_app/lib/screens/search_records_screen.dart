@@ -75,34 +75,95 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
     );
   }
 
+  Invoice _enrichInvoiceWithPatient(Invoice inv, Patient p) {
+    String op = inv.opNumber.isNotEmpty ? inv.opNumber : p.opNumber;
+    String addr = inv.address.isNotEmpty ? inv.address : p.address;
+    String name = inv.patientName.isNotEmpty ? inv.patientName : p.name;
+    String phone = inv.phone.isNotEmpty ? inv.phone : p.phone;
+    String doc = inv.doctor.isNotEmpty && !inv.doctor.contains('Attending') ? inv.doctor : p.doctor;
+    String treatment = inv.treatment;
+    double tCharge = inv.treatmentCharge;
+
+    if (treatment.isEmpty) {
+      final cleanInvId = InvoiceReceiptDialog.cleanBillNo(inv.id).toLowerCase();
+      final vMatch = p.visits.where((v) {
+        final cId = InvoiceReceiptDialog.cleanBillNo(v.invoiceId).toLowerCase();
+        return (cId.isNotEmpty && cId == cleanInvId) || v.date == inv.date;
+      });
+      if (vMatch.isNotEmpty && vMatch.first.notes.isNotEmpty) {
+        treatment = vMatch.first.notes;
+      } else if (p.diseaseHistory.isNotEmpty) {
+        treatment = p.diseaseHistory;
+      }
+    }
+
+    if (tCharge <= 0 && treatment.isNotEmpty) {
+      final known = inv.consultationCharge + inv.xrayCharge + inv.pharmacyCharge + inv.customCharges.fold<double>(0.0, (s, c) => s + c.amount);
+      if (inv.totalAmount > known) {
+        tCharge = inv.totalAmount - known;
+      }
+    }
+
+    return inv.copyWith(
+      opNumber: op,
+      address: addr,
+      patientName: name,
+      phone: phone,
+      doctor: doc,
+      treatment: treatment,
+      treatmentCharge: tCharge,
+    );
+  }
+
   List<Invoice> _getInvoicesForPatient(Patient p) {
     final pDigits = p.phone.replaceAll(RegExp(r'\D'), '');
+    final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    final pOp = p.opNumber.trim().toLowerCase();
+    final visitInvoiceIds = p.visits
+        .map((v) => InvoiceReceiptDialog.cleanBillNo(v.invoiceId).toLowerCase())
+        .where((id) => id.isNotEmpty && id != 'inv-sheet')
+        .toSet();
+
     return widget.storage.invoices.where((inv) {
+      final cleanInvId = InvoiceReceiptDialog.cleanBillNo(inv.id).toLowerCase();
+      final idMatch = visitInvoiceIds.contains(cleanInvId);
       final invDigits = inv.phone.replaceAll(RegExp(r'\D'), '');
       final phoneMatch = p.phone.isNotEmpty && (inv.phone == p.phone || (pDigits.length >= 8 && invDigits.contains(pDigits)));
-      final nameMatch = inv.patientName.trim().toLowerCase() == p.name.trim().toLowerCase();
-      final opMatch = p.opNumber.isNotEmpty && inv.opNumber.trim().toLowerCase() == p.opNumber.trim().toLowerCase();
-      return phoneMatch || nameMatch || opMatch;
-    }).toList();
+      final invName = inv.patientName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+      final nameMatch = pName.isNotEmpty && invName == pName;
+      final opMatch = pOp.isNotEmpty && inv.opNumber.trim().toLowerCase() == pOp;
+      return idMatch || phoneMatch || nameMatch || opMatch;
+    }).map((inv) => _enrichInvoiceWithPatient(inv, p)).toList();
   }
 
   Invoice _findOrCreateInvoiceForVisit(Patient p, VisitRecord v) {
-    if (v.invoiceId.isNotEmpty) {
-      final found = widget.storage.invoices.where((i) => i.id == v.invoiceId || i.id.toLowerCase() == v.invoiceId.toLowerCase());
-      if (found.isNotEmpty) return found.first;
+    final cleanVId = InvoiceReceiptDialog.cleanBillNo(v.invoiceId).toLowerCase();
+    if (cleanVId.isNotEmpty && cleanVId != 'inv-sheet') {
+      final found = widget.storage.invoices.where((i) {
+        final cleanIId = InvoiceReceiptDialog.cleanBillNo(i.id).toLowerCase();
+        return cleanIId == cleanVId || i.id == v.invoiceId || i.id.toLowerCase() == v.invoiceId.toLowerCase();
+      });
+      if (found.isNotEmpty) return _enrichInvoiceWithPatient(found.first, p);
     }
-    final match = widget.storage.invoices.where((i) =>
-      i.patientName.toLowerCase() == p.name.toLowerCase() && i.date == v.date
-    );
-    if (match.isNotEmpty) return match.first;
 
+    final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    final match = widget.storage.invoices.where((i) =>
+      i.patientName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ') == pName && i.date == v.date
+    );
+    if (match.isNotEmpty) return _enrichInvoiceWithPatient(match.first, p);
+
+    final treatmentText = v.notes.isNotEmpty ? v.notes : (p.diseaseHistory.isNotEmpty ? p.diseaseHistory : 'Dental Treatment & Procedure');
     return Invoice(
       id: v.invoiceId.isNotEmpty ? v.invoiceId : 'INV-${v.date.replaceAll('/', '').replaceAll('-', '')}',
       patientName: p.name,
       phone: p.phone,
       doctor: v.doctor.isNotEmpty ? v.doctor : p.doctor,
       date: v.date,
-      consultationCharge: v.amount,
+      consultationCharge: 0.0,
+      treatmentCharge: v.amount,
+      treatment: treatmentText,
+      treatmentNos: 1,
+      treatmentRate: v.amount,
       xrayCharge: 0.0,
       pharmacyCharge: 0.0,
       totalAmount: v.amount,
@@ -110,8 +171,6 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       notes: v.notes,
       address: p.address,
       opNumber: p.opNumber,
-      treatmentNos: 1,
-      treatmentRate: v.amount,
     );
   }
 

@@ -949,13 +949,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const pharmAmt = parseFloat(inv.pharmacyCharge) || 0;
             const total = parseFloat(inv.totalAmount) || (consultAmt + treatAmt + xrayAmt + pharmAmt);
             const customList = Array.isArray(inv.customCharges) ? inv.customCharges : [];
+            const customSum = customList.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+            const total = parseFloat(inv.totalAmount) || (consultAmt + treatAmt + xrayAmt + pharmAmt + customSum);
 
             const formatNum = (n) => (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
             if (inv.treatment && inv.treatment.trim().length > 0) {
-                const nos = inv.nos || 1;
-                const amt = treatAmt > 0 ? treatAmt : (total > 0 ? total : 0);
-                const rate = inv.rate ? parseFloat(inv.rate) : (amt / nos);
+                const nos = inv.nos || inv.treatmentNos || 1;
+                let amt = treatAmt > 0 ? treatAmt : (total - (consultAmt + xrayAmt + pharmAmt + customSum));
+                if (amt < 0) amt = 0;
+                const rate = inv.rate || inv.treatmentRate ? parseFloat(inv.rate || inv.treatmentRate) : (nos > 0 ? (amt / nos) : amt);
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rowIdx++}</td>
                     <td>${escapeHtml(inv.treatment)}</td>
@@ -963,31 +966,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td style="text-align: right;">${formatNum(rate)}</td>
                     <td style="text-align: right;">${formatNum(amt)}</td>
                 </tr>`;
-            } else if (consultAmt > 0 || (treatAmt === 0 && xrayAmt === 0 && pharmAmt === 0 && customList.length === 0)) {
-                const amt = consultAmt > 0 ? consultAmt : total;
-                rowHtml += `<tr>
-                    <td style="text-align: center;">${rowIdx++}</td>
-                    <td>Consultation & Dental Examination</td>
-                    <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatNum(amt)}</td>
-                    <td style="text-align: right;">${formatNum(amt)}</td>
-                </tr>`;
             }
 
-            if (treatAmt > 0 && !(inv.treatment && inv.treatment.trim().length > 0)) {
+            if (consultAmt > 0) {
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rowIdx++}</td>
-                    <td>Dental Treatment & Procedure</td>
+                    <td>Doctor Consultation Charge</td>
                     <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatNum(treatAmt)}</td>
-                    <td style="text-align: right;">${formatNum(treatAmt)}</td>
+                    <td style="text-align: right;">${formatNum(consultAmt)}</td>
+                    <td style="text-align: right;">${formatNum(consultAmt)}</td>
                 </tr>`;
             }
 
             if (xrayAmt > 0) {
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rowIdx++}</td>
-                    <td>X-Ray Radiology Examination</td>
+                    <td>X-Ray Examination Charge</td>
                     <td style="text-align: center;">1</td>
                     <td style="text-align: right;">${formatNum(xrayAmt)}</td>
                     <td style="text-align: right;">${formatNum(xrayAmt)}</td>
@@ -997,7 +991,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (pharmAmt > 0) {
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rowIdx++}</td>
-                    <td>Pharmacy & Medicines</td>
+                    <td>Pharmacy / Medicines Charge</td>
                     <td style="text-align: center;">1</td>
                     <td style="text-align: right;">${formatNum(pharmAmt)}</td>
                     <td style="text-align: right;">${formatNum(pharmAmt)}</td>
@@ -1008,12 +1002,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 const amt = parseFloat(c.amount) || 0;
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rowIdx++}</td>
-                    <td>${escapeHtml(c.title || 'Clinical Procedure')}</td>
+                    <td>${escapeHtml(c.title || 'Extra')}</td>
                     <td style="text-align: center;">${c.nos || 1}</td>
                     <td style="text-align: right;">${formatNum(parseFloat(c.rate) || amt)}</td>
                     <td style="text-align: right;">${formatNum(amt)}</td>
                 </tr>`;
             });
+
+            // Fallback: if treatment was empty but total is greater than known charges
+            const currentSum = (inv.treatment ? (treatAmt > 0 ? treatAmt : (total - (consultAmt + xrayAmt + pharmAmt + customSum))) : 0) + consultAmt + xrayAmt + pharmAmt + customSum;
+            if (!inv.treatment && total > (currentSum + 0.01)) {
+                const diff = total - currentSum;
+                const desc = inv.notes || 'Dental Treatment & Procedure';
+                rowHtml = `<tr>
+                    <td style="text-align: center;">1</td>
+                    <td>${escapeHtml(desc)}</td>
+                    <td style="text-align: center;">1</td>
+                    <td style="text-align: right;">${formatNum(diff)}</td>
+                    <td style="text-align: right;">${formatNum(diff)}</td>
+                </tr>` + rowHtml;
+            }
+
+            if (!rowHtml) {
+                rowHtml = `<tr>
+                    <td style="text-align: center;">1</td>
+                    <td>Dental Consultation & Treatment</td>
+                    <td style="text-align: center;">1</td>
+                    <td style="text-align: right;">${formatNum(total)}</td>
+                    <td style="text-align: right;">${formatNum(total)}</td>
+                </tr>`;
+            }
 
             // Blank spacer row to match reference receipt pad
             rowHtml += `<tr class="spacer-row"><td></td><td></td><td></td><td></td><td></td></tr>`;
@@ -1208,14 +1226,15 @@ Wishing you good oral health!
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(rate)}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
             </tr>`;
-        } else if (cAmt > 0 || (tAmt === 0 && xAmt === 0 && pAmt === 0 && customs.length === 0)) {
-            const amt = cAmt > 0 ? cAmt : total;
+        }
+
+        if (cAmt > 0) {
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">Consultation & Dental Examination</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">Doctor Consultation Charge</td>
                 <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(cAmt)}</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(cAmt)}</td>
             </tr>`;
         }
 
@@ -1232,7 +1251,7 @@ Wishing you good oral health!
         if (xAmt > 0) {
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">X-Ray Radiology Examination</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">X-Ray Examination Charge</td>
                 <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(xAmt)}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(xAmt)}</td>
@@ -1242,7 +1261,7 @@ Wishing you good oral health!
         if (pAmt > 0) {
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">Pharmacy & Medicines</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">Pharmacy / Medicines Charge</td>
                 <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(pAmt)}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(pAmt)}</td>
@@ -1253,12 +1272,36 @@ Wishing you good oral health!
             const amt = parseFloat(c.amount) || 0;
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(c.title || 'Clinical Procedure')}</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(c.title || 'Extra')}</td>
                 <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">${c.nos || 1}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(parseFloat(c.rate) || amt)}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
             </tr>`;
         });
+
+        // Fallback: if treatment was empty but total is greater than known charges
+        const currentSum = (inv.treatment ? (tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0)))) : 0) + cAmt + xAmt + pAmt + customs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+        if (!inv.treatment && total > (currentSum + 0.01)) {
+            const diff = total - currentSum;
+            const desc = inv.notes || 'Dental Treatment & Procedure';
+            rowsHtml = `<tr>
+                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">1</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(desc)}</td>
+                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(diff)}</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(diff)}</td>
+            </tr>` + rowsHtml;
+        }
+
+        if (!rowsHtml) {
+            rowsHtml = `<tr>
+                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">1</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">Dental Consultation & Treatment</td>
+                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(total)}</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(total)}</td>
+            </tr>`;
+        }
 
         // Blank spacer row to match reference receipt pad
         rowsHtml += `<tr><td style="height: 180px; border-left: 1px solid #000; border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td></tr>`;

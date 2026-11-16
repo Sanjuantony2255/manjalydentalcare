@@ -399,7 +399,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const doctor = cleanDoctor(patient.doctorConsulted);
 
                     const latestInvNo = (patient.invoices && patient.invoices.length > 0) ? patient.invoices[0].invoiceNo : (patient.visits && patient.visits.length > 0 ? (patient.visits[0].invoiceNo || '') : '');
-                    const invRedirectUrl = `search.html?phone=${encodeURIComponent(patient.phone || '')}&name=${encodeURIComponent(patient.fullName || '')}&invoice=${encodeURIComponent(latestInvNo)}&openInvoice=true`;
+                    const invRedirectUrl = `search.html?phone=${encodeURIComponent(patient.phone || '')}&name=${encodeURIComponent(patient.fullName || '')}&op=${encodeURIComponent(patient.opNumber || '')}&invoice=${encodeURIComponent(latestInvNo)}&openInvoice=true`;
 
                     return `
                         <div class="patient-card">
@@ -480,7 +480,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const totalBilled = parseFloat(patient.totalBilled) || 0;
         const invoices = Array.isArray(patient.invoices) ? patient.invoices : [];
         const latestInvNo = invoices.length > 0 ? invoices[0].invoiceNo : (patient.visits && patient.visits.length > 0 ? (patient.visits[0].invoiceNo || '') : '');
-        const modalInvRedirectUrl = `search.html?phone=${encodeURIComponent(patient.phone || '')}&name=${encodeURIComponent(patient.fullName || '')}&invoice=${encodeURIComponent(latestInvNo)}&openInvoice=true`;
+        const modalInvRedirectUrl = `search.html?phone=${encodeURIComponent(patient.phone || '')}&name=${encodeURIComponent(patient.fullName || '')}&op=${encodeURIComponent(patient.opNumber || '')}&invoice=${encodeURIComponent(latestInvNo)}&openInvoice=true`;
 
         modalBillingSummary.innerHTML = `
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.9rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">

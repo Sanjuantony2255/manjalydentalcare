@@ -335,11 +335,17 @@ function getInvoicesSheet(ss) {
       'Patient Name',
       'Phone',
       'Doctor Consulted',
+      'Treatment',
+      'Treatment Charge',
+      'Treatment Nos',
+      'Treatment Rate',
       'Consultation Charge',
       'X-Ray Charge',
       'Pharmacy Charge',
+      'Custom Charges',
       'Total Amount',
       'Payment Mode',
+      'Address',
       'Google Drive URL'
     ];
     sheet.appendRow(headers);
@@ -347,10 +353,35 @@ function getInvoicesSheet(ss) {
     sheet.setFrozenRows(1);
   } else {
     var lastCol = Math.max(sheet.getLastColumn(), 1);
-    var existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
-    var hasOp = existingHeaders.some(function(h) { return (h || '').toString().toLowerCase().indexOf('op') !== -1; });
-    if (!hasOp) {
-      sheet.getRange(1, lastCol + 1).setValue('OP Number').setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+    var existingHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) { return (h || '').toString().toLowerCase().trim(); });
+    
+    var requiredCols = [
+      { name: 'OP Number', kw: ['op number', 'op no', 'op'] },
+      { name: 'Treatment', kw: ['treatment name', 'treatment procedure', 'treatment'] },
+      { name: 'Treatment Charge', kw: ['treatment charge', 'procedure charge'] },
+      { name: 'Treatment Nos', kw: ['treatment nos', 'nos', 'qty'] },
+      { name: 'Treatment Rate', kw: ['treatment rate', 'rate'] },
+      { name: 'Custom Charges', kw: ['custom charges', 'custom', 'extra'] },
+      { name: 'Address', kw: ['address', 'place', 'location'] }
+    ];
+
+    for (var r = 0; r < requiredCols.length; r++) {
+      var req = requiredCols[r];
+      var found = false;
+      for (var eh = 0; eh < existingHeaders.length; eh++) {
+        for (var k = 0; k < req.kw.length; k++) {
+          if (existingHeaders[eh].indexOf(req.kw[k]) !== -1) {
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+      if (!found) {
+        lastCol++;
+        sheet.getRange(1, lastCol).setValue(req.name).setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+        existingHeaders.push(req.name.toLowerCase());
+      }
     }
   }
   return sheet;
@@ -636,15 +667,20 @@ function handlePatientRegistration(ss, data) {
       if (ih.indexOf('invoice') !== -1 || ih.indexOf('bill') !== -1) ival = invoiceNo;
       else if (ih.indexOf('op') !== -1) ival = data.opNumber || '';
       else if (ih.indexOf('time') !== -1 || ih.indexOf('date') !== -1) ival = timestamp;
-      else if (ih.indexOf('name') !== -1 || ih.indexOf('patient') !== -1) ival = data.fullName || data.name || '';
+      else if (ih.indexOf('patient') !== -1 || (ih.indexOf('name') !== -1 && ih.indexOf('doctor') === -1)) ival = data.fullName || data.name || '';
       else if (ih.indexOf('phone') !== -1 || ih.indexOf('mobile') !== -1) ival = phoneStr;
       else if (ih.indexOf('doctor') !== -1) ival = docName || '';
+      else if (ih.indexOf('treatment charge') !== -1 || ih.indexOf('procedure charge') !== -1) ival = (parseFloat(data.treatmentCharge) || 0).toFixed(2);
+      else if (ih.indexOf('treatment nos') !== -1 || ih.indexOf('nos') !== -1) ival = (data.treatmentNos || data.nos || 1).toString();
+      else if (ih.indexOf('treatment rate') !== -1 || ih.indexOf('rate') !== -1) ival = (parseFloat(data.treatmentRate || data.rate) || parseFloat(data.treatmentCharge) || 0).toFixed(2);
+      else if (ih.indexOf('treatment') !== -1) ival = data.treatment || data.diseaseHistory || '';
       else if (ih.indexOf('consult') !== -1) ival = consultation.toFixed(2);
       else if (ih.indexOf('xray') !== -1 || ih.indexOf('x-ray') !== -1) ival = xray.toFixed(2);
       else if (ih.indexOf('pharm') !== -1 || ih.indexOf('med') !== -1) ival = pharmacy.toFixed(2);
-      else if (ih.indexOf('treatment') !== -1) ival = (parseFloat(data.treatmentCharge) || 0).toFixed(2);
+      else if (ih.indexOf('custom') !== -1 || ih.indexOf('extra') !== -1) ival = Array.isArray(data.customCharges) ? JSON.stringify(data.customCharges) : (data.customCharges ? data.customCharges.toString() : '');
       else if (ih.indexOf('total') !== -1 || ih.indexOf('amount') !== -1) ival = total.toFixed(2);
       else if (ih.indexOf('payment') !== -1 || ih.indexOf('mode') !== -1) ival = paymentMode;
+      else if (ih.indexOf('address') !== -1 || ih.indexOf('place') !== -1) ival = data.address || data.email || '';
       else if (ih.indexOf('drive') !== -1 || ih.indexOf('url') !== -1) ival = driveResult.fileUrl || '';
       invRow.push(ival);
     }
@@ -1553,37 +1589,111 @@ function handleSearchPatient(ss, params) {
     if (invSheet) {
       var invData = invSheet.getDataRange().getValues();
       if (invData && invData.length > 1) {
+        var invHeadersLower = [];
+        for (var ic = 0; ic < invData[0].length; ic++) {
+          invHeadersLower.push((invData[0][ic] || '').toString().toLowerCase().trim());
+        }
+
+        var colInvNo = getHeaderColumnIndex(invHeadersLower, ['invoice no', 'invoice number', 'invoice', 'bill'], [], 0);
+        var colOp = getHeaderColumnIndex(invHeadersLower, ['op number', 'op no', 'opnum', 'op#', 'op'], [], -1);
+        var colTime = getHeaderColumnIndex(invHeadersLower, ['time', 'date'], [], -1);
+        var colName = getHeaderColumnIndex(invHeadersLower, ['patient name', 'full name', 'patient', 'name'], ['doctor'], -1);
+        var colPhone = getHeaderColumnIndex(invHeadersLower, ['phone', 'mobile', 'contact'], [], -1);
+        var colDoctor = getHeaderColumnIndex(invHeadersLower, ['doctor', 'consulted'], [], -1);
+        var colTreatment = getHeaderColumnIndex(invHeadersLower, ['treatment name', 'treatment procedure', 'treatment'], ['charge', 'rate', 'cost', 'fee', 'amount', 'nos'], -1);
+        var colTreatmentCharge = getHeaderColumnIndex(invHeadersLower, ['treatment charge', 'procedure charge', 'treatment fee'], [], -1);
+        var colTreatmentNos = getHeaderColumnIndex(invHeadersLower, ['treatment nos', 'nos', 'qty'], [], -1);
+        var colTreatmentRate = getHeaderColumnIndex(invHeadersLower, ['treatment rate', 'rate'], [], -1);
+        var colConsult = getHeaderColumnIndex(invHeadersLower, ['consultation charge', 'consult charge', 'consultation fee', 'consultation', 'consult'], ['doctor'], -1);
+        var colXray = getHeaderColumnIndex(invHeadersLower, ['xray', 'x-ray'], [], -1);
+        var colPharm = getHeaderColumnIndex(invHeadersLower, ['pharm', 'medicin'], [], -1);
+        var colCustom = getHeaderColumnIndex(invHeadersLower, ['custom charges', 'custom', 'extra'], [], -1);
+        var colTotal = getHeaderColumnIndex(invHeadersLower, ['total amount', 'total', 'amount'], [], -1);
+        var colPayMode = getHeaderColumnIndex(invHeadersLower, ['payment mode', 'payment', 'mode'], [], -1);
+        var colAddress = getHeaderColumnIndex(invHeadersLower, ['address', 'place', 'location'], [], -1);
+        var colDrive = getHeaderColumnIndex(invHeadersLower, ['drive', 'url', 'link', 'file'], [], -1);
+
         for (var j = 1; j < invData.length; j++) {
           var iRow = invData[j];
-          var iNoVal = formatCellValue(iRow[0]);
+          var iNoVal = colInvNo >= 0 ? formatCellValue(iRow[colInvNo]) : formatCellValue(iRow[0]);
           var iNoLower = iNoVal.toLowerCase();
-          var invPatName = formatCellValue(iRow[2]).toLowerCase();
-          var invRawPhone = formatCellValue(iRow[3]);
-          var invPhoneDigits = extractDigits(invRawPhone);
+
+          // Column fallbacks if headers weren't matched
+          var rowOp = colOp >= 0 ? formatCellValue(iRow[colOp]) : '';
+          var rowTime = colTime >= 0 ? formatCellValue(iRow[colTime]) : (iRow.length >= 12 ? formatCellValue(iRow[2]) : formatCellValue(iRow[1]));
+          var rowName = colName >= 0 ? formatCellValue(iRow[colName]) : (iRow.length >= 12 ? formatCellValue(iRow[3]) : formatCellValue(iRow[2]));
+          var rowPhone = colPhone >= 0 ? formatCellValue(iRow[colPhone]) : (iRow.length >= 12 ? formatCellValue(iRow[4]) : formatCellValue(iRow[3]));
+          var rowDoc = colDoctor >= 0 ? formatCellValue(iRow[colDoctor]) : (iRow.length >= 12 ? formatCellValue(iRow[5]) : formatCellValue(iRow[4]));
+          if (rowDoc.toLowerCase().indexOf('consulting specialist') !== -1) rowDoc = '';
+
+          var rowConsult = colConsult >= 0 ? formatCellValue(iRow[colConsult]) : (iRow.length >= 12 ? formatCellValue(iRow[6]) : formatCellValue(iRow[5]));
+          var rowXray = colXray >= 0 ? formatCellValue(iRow[colXray]) : (iRow.length >= 12 ? formatCellValue(iRow[7]) : formatCellValue(iRow[6]));
+          var rowPharm = colPharm >= 0 ? formatCellValue(iRow[colPharm]) : (iRow.length >= 12 ? formatCellValue(iRow[8]) : formatCellValue(iRow[7]));
+          var rowTotal = colTotal >= 0 ? formatCellValue(iRow[colTotal]) : (iRow.length >= 12 ? formatCellValue(iRow[9]) : formatCellValue(iRow[8]));
+          var rowPayMode = colPayMode >= 0 ? formatCellValue(iRow[colPayMode]) : (iRow.length >= 12 ? formatCellValue(iRow[10]) : formatCellValue(iRow[9]));
+          var rowDrive = colDrive >= 0 ? formatCellValue(iRow[colDrive]) : (iRow.length >= 12 ? formatCellValue(iRow[11]) : formatCellValue(iRow[10]));
+          var rowTreatment = colTreatment >= 0 ? formatCellValue(iRow[colTreatment]) : '';
+          var rowTreatmentCharge = colTreatmentCharge >= 0 ? formatCellValue(iRow[colTreatmentCharge]) : '';
+          var rowTreatmentNos = colTreatmentNos >= 0 ? formatCellValue(iRow[colTreatmentNos]) : '1';
+          var rowTreatmentRate = colTreatmentRate >= 0 ? formatCellValue(iRow[colTreatmentRate]) : '';
+          var rowAddress = colAddress >= 0 ? formatCellValue(iRow[colAddress]) : '';
+          var rawCustom = colCustom >= 0 ? formatCellValue(iRow[colCustom]) : '';
+          var parsedCustom = [];
+          if (rawCustom) {
+            try {
+              parsedCustom = JSON.parse(rawCustom);
+            } catch(e) {}
+          }
+
+          var invPatName = rowName.toLowerCase();
+          var invPhoneDigits = extractDigits(rowPhone);
+          var invOpLower = rowOp.toLowerCase();
 
           var invMatch = false;
           if (matchedPhones[invPhoneDigits] || matchedNames[invPatName]) {
             invMatch = true;
-          } else if (invPatName.indexOf(queryLower) !== -1 || (queryDigits.length >= 4 && (invPhoneDigits.indexOf(queryDigits) !== -1 || queryDigits.indexOf(invPhoneDigits) !== -1)) || (queryDigits10.length >= 4 && (invPhoneDigits.indexOf(queryDigits10) !== -1 || queryDigits10.indexOf(invPhoneDigits) !== -1)) || (iNoLower && (iNoLower.indexOf(queryLower) !== -1 || queryLower.indexOf(iNoLower) !== -1))) {
+          } else if (invPatName.indexOf(queryLower) !== -1 || (invOpLower && (invOpLower.indexOf(queryLower) !== -1 || queryLower.indexOf(invOpLower) !== -1)) || (queryDigits.length >= 4 && (invPhoneDigits.indexOf(queryDigits) !== -1 || queryDigits.indexOf(invPhoneDigits) !== -1)) || (queryDigits10.length >= 4 && (invPhoneDigits.indexOf(queryDigits10) !== -1 || queryDigits10.indexOf(invPhoneDigits) !== -1)) || (iNoLower && (iNoLower.indexOf(queryLower) !== -1 || queryLower.indexOf(iNoLower) !== -1))) {
             invMatch = true;
           }
 
           if (invMatch) {
-            var invDocVal = formatCellValue(iRow[4]);
-            if (invDocVal.toLowerCase().indexOf('consulting specialist') !== -1) invDocVal = '';
+            // Cross-reference with visits if opNumber or treatment is missing
+            if (!rowOp || !rowTreatment || !rowAddress) {
+              for (var vi = 0; vi < visits.length; vi++) {
+                var v = visits[vi];
+                var vInv = (v.invoiceNo || '').toLowerCase();
+                var vPhone = extractDigits(v.phone);
+                var vName = (v.fullName || '').toLowerCase().trim();
+                if ((vInv && vInv === iNoLower) || (vPhone && vPhone === invPhoneDigits) || (vName && vName === invPatName)) {
+                  if (!rowOp && v.opNumber) rowOp = v.opNumber;
+                  if (!rowTreatment && (v.diseaseHistory || v.medicalHistory)) rowTreatment = v.diseaseHistory || v.medicalHistory;
+                  if (!rowAddress && v.address) rowAddress = v.address;
+                  break;
+                }
+              }
+            }
 
             invoices.push({
               invoiceNo: iNoVal,
-              timestamp: formatCellValue(iRow[1]),
-              patientName: formatCellValue(iRow[2]),
-              phone: invRawPhone,
-              doctorConsulted: invDocVal,
-              consultationCharge: formatCellValue(iRow[5]),
-              xrayCharge: formatCellValue(iRow[6]),
-              pharmacyCharge: formatCellValue(iRow[7]),
-              totalAmount: formatCellValue(iRow[8]),
-              paymentMode: formatCellValue(iRow[9]),
-              driveFileUrl: formatCellValue(iRow[10])
+              opNumber: rowOp,
+              timestamp: rowTime,
+              date: rowTime.indexOf(' ') !== -1 ? rowTime.split(' ')[0] : rowTime,
+              patientName: rowName,
+              fullName: rowName,
+              phone: rowPhone,
+              address: rowAddress,
+              doctorConsulted: rowDoc || 'Attending Doctor',
+              treatment: rowTreatment,
+              treatmentCharge: rowTreatmentCharge,
+              treatmentNos: rowTreatmentNos || '1',
+              treatmentRate: rowTreatmentRate,
+              consultationCharge: rowConsult,
+              xrayCharge: rowXray,
+              pharmacyCharge: rowPharm,
+              customCharges: parsedCustom,
+              totalAmount: rowTotal,
+              paymentMode: rowPayMode || 'Cash',
+              driveFileUrl: rowDrive
             });
           }
         }
@@ -1897,16 +2007,58 @@ function handleGetPatients(ss) {
     if (invSheet) {
       var invData = invSheet.getDataRange().getValues();
       if (invData && invData.length > 1) {
+        var invHeadersLower = [];
+        for (var ic = 0; ic < invData[0].length; ic++) {
+          invHeadersLower.push((invData[0][ic] || '').toString().toLowerCase().trim());
+        }
+
+        var colInvNo = getHeaderColumnIndex(invHeadersLower, ['invoice no', 'invoice number', 'invoice', 'bill'], [], 0);
+        var colOp = getHeaderColumnIndex(invHeadersLower, ['op number', 'op no', 'opnum', 'op#', 'op'], [], -1);
+        var colTime = getHeaderColumnIndex(invHeadersLower, ['time', 'date'], [], -1);
+        var colName = getHeaderColumnIndex(invHeadersLower, ['patient name', 'full name', 'patient', 'name'], ['doctor'], -1);
+        var colPhone = getHeaderColumnIndex(invHeadersLower, ['phone', 'mobile', 'contact'], [], -1);
+        var colDoctor = getHeaderColumnIndex(invHeadersLower, ['doctor', 'consulted'], [], -1);
+        var colTreatment = getHeaderColumnIndex(invHeadersLower, ['treatment name', 'treatment procedure', 'treatment'], ['charge', 'rate', 'cost', 'fee', 'amount', 'nos'], -1);
+        var colTreatmentCharge = getHeaderColumnIndex(invHeadersLower, ['treatment charge', 'procedure charge', 'treatment fee'], [], -1);
+        var colTreatmentNos = getHeaderColumnIndex(invHeadersLower, ['treatment nos', 'nos', 'qty'], [], -1);
+        var colTreatmentRate = getHeaderColumnIndex(invHeadersLower, ['treatment rate', 'rate'], [], -1);
+        var colConsult = getHeaderColumnIndex(invHeadersLower, ['consultation charge', 'consult charge', 'consultation fee', 'consultation', 'consult'], ['doctor'], -1);
+        var colXray = getHeaderColumnIndex(invHeadersLower, ['xray', 'x-ray'], [], -1);
+        var colPharm = getHeaderColumnIndex(invHeadersLower, ['pharm', 'medicin'], [], -1);
+        var colCustom = getHeaderColumnIndex(invHeadersLower, ['custom charges', 'custom', 'extra'], [], -1);
+        var colTotal = getHeaderColumnIndex(invHeadersLower, ['total amount', 'total', 'amount'], [], -1);
+        var colPayMode = getHeaderColumnIndex(invHeadersLower, ['payment mode', 'payment', 'mode'], [], -1);
+        var colAddress = getHeaderColumnIndex(invHeadersLower, ['address', 'place', 'location'], [], -1);
+        var colDrive = getHeaderColumnIndex(invHeadersLower, ['drive', 'url', 'link', 'file'], [], -1);
+
         for (var j = 1; j < invData.length; j++) {
           var iRow = invData[j];
-          var iNo = formatCellValue(iRow[0]);
-          var iTime = formatCellValue(iRow[1]);
-          var iName = formatCellValue(iRow[2]);
-          var iPhone = formatCellValue(iRow[3]);
-          var iDoc = formatCellValue(iRow[4]);
+          var iNo = colInvNo >= 0 ? formatCellValue(iRow[colInvNo]) : formatCellValue(iRow[0]);
+          var iOp = colOp >= 0 ? formatCellValue(iRow[colOp]) : '';
+          var iTime = colTime >= 0 ? formatCellValue(iRow[colTime]) : (iRow.length >= 12 ? formatCellValue(iRow[2]) : formatCellValue(iRow[1]));
+          var iName = colName >= 0 ? formatCellValue(iRow[colName]) : (iRow.length >= 12 ? formatCellValue(iRow[3]) : formatCellValue(iRow[2]));
+          var iPhone = colPhone >= 0 ? formatCellValue(iRow[colPhone]) : (iRow.length >= 12 ? formatCellValue(iRow[4]) : formatCellValue(iRow[3]));
+          var iDoc = colDoctor >= 0 ? formatCellValue(iRow[colDoctor]) : (iRow.length >= 12 ? formatCellValue(iRow[5]) : formatCellValue(iRow[4]));
           if (iDoc.toLowerCase().indexOf('consulting specialist') !== -1) iDoc = '';
-          var iTot = parseFloat(formatCellValue(iRow[8])) || 0;
-          var iDrive = formatCellValue(iRow[10]);
+
+          var iConsult = colConsult >= 0 ? formatCellValue(iRow[colConsult]) : (iRow.length >= 12 ? formatCellValue(iRow[6]) : formatCellValue(iRow[5]));
+          var iXray = colXray >= 0 ? formatCellValue(iRow[colXray]) : (iRow.length >= 12 ? formatCellValue(iRow[7]) : formatCellValue(iRow[6]));
+          var iPharm = colPharm >= 0 ? formatCellValue(iRow[colPharm]) : (iRow.length >= 12 ? formatCellValue(iRow[8]) : formatCellValue(iRow[7]));
+          var iTot = parseFloat(colTotal >= 0 ? formatCellValue(iRow[colTotal]) : (iRow.length >= 12 ? formatCellValue(iRow[9]) : formatCellValue(iRow[8]))) || 0;
+          var iPayMode = colPayMode >= 0 ? formatCellValue(iRow[colPayMode]) : (iRow.length >= 12 ? formatCellValue(iRow[10]) : formatCellValue(iRow[9]));
+          var iDrive = colDrive >= 0 ? formatCellValue(iRow[colDrive]) : (iRow.length >= 12 ? formatCellValue(iRow[11]) : formatCellValue(iRow[10]));
+          var iTreatment = colTreatment >= 0 ? formatCellValue(iRow[colTreatment]) : '';
+          var iTreatmentCharge = colTreatmentCharge >= 0 ? formatCellValue(iRow[colTreatmentCharge]) : '';
+          var iTreatmentNos = colTreatmentNos >= 0 ? formatCellValue(iRow[colTreatmentNos]) : '1';
+          var iTreatmentRate = colTreatmentRate >= 0 ? formatCellValue(iRow[colTreatmentRate]) : '';
+          var iAddress = colAddress >= 0 ? formatCellValue(iRow[colAddress]) : '';
+          var rawCustom = colCustom >= 0 ? formatCellValue(iRow[colCustom]) : '';
+          var parsedCustom = [];
+          if (rawCustom) {
+            try {
+              parsedCustom = JSON.parse(rawCustom);
+            } catch(e) {}
+          }
 
           totalInvoices++;
           var iDigits = extractDigits(iPhone);
@@ -1915,17 +2067,42 @@ function handleGetPatients(ss) {
 
           var invObj = {
             invoiceNo: iNo,
+            opNumber: iOp,
             timestamp: iTime,
-            doctorConsulted: iDoc,
+            date: iTime.indexOf(' ') !== -1 ? iTime.split(' ')[0] : iTime,
+            patientName: iName,
+            fullName: iName,
+            phone: iPhone,
+            address: iAddress,
+            doctorConsulted: iDoc || 'Attending Doctor',
+            treatment: iTreatment,
+            treatmentCharge: iTreatmentCharge,
+            treatmentNos: iTreatmentNos || '1',
+            treatmentRate: iTreatmentRate,
+            consultationCharge: iConsult,
+            xrayCharge: iXray,
+            pharmacyCharge: iPharm,
+            customCharges: parsedCustom,
             totalAmount: iTot,
+            paymentMode: iPayMode || 'Cash',
             driveFileUrl: iDrive
           };
 
           if (invKey && patientsMap[invKey]) {
+            if (!invObj.opNumber && patientsMap[invKey].opNumber) invObj.opNumber = patientsMap[invKey].opNumber;
+            if (!invObj.address && patientsMap[invKey].address) invObj.address = patientsMap[invKey].address;
+            if (!invObj.treatment && (patientsMap[invKey].diseaseHistory || patientsMap[invKey].medicalHistory)) {
+              invObj.treatment = patientsMap[invKey].diseaseHistory || patientsMap[invKey].medicalHistory;
+            }
             patientsMap[invKey].invoices.push(invObj);
           } else {
             for (var pK in patientsMap) {
               if ((iDigits && extractDigits(patientsMap[pK].phone) === iDigits) || (invCleanName && patientsMap[pK].fullName.toLowerCase().trim() === invCleanName)) {
+                if (!invObj.opNumber && patientsMap[pK].opNumber) invObj.opNumber = patientsMap[pK].opNumber;
+                if (!invObj.address && patientsMap[pK].address) invObj.address = patientsMap[pK].address;
+                if (!invObj.treatment && (patientsMap[pK].diseaseHistory || patientsMap[pK].medicalHistory)) {
+                  invObj.treatment = patientsMap[pK].diseaseHistory || patientsMap[pK].medicalHistory;
+                }
                 patientsMap[pK].invoices.push(invObj);
                 break;
               }

@@ -60,10 +60,15 @@ class InvoiceReceiptDialog extends StatelessWidget {
     final rows = <InvoiceItemRow>[];
     int rIdx = 1;
 
+    final customsSum = inv.customCharges.fold<double>(0.0, (sum, c) => sum + c.amount);
+    final otherChargesSum = inv.consultationCharge + inv.xrayCharge + inv.pharmacyCharge + customsSum;
+
     if (inv.treatment.isNotEmpty) {
       final nos = inv.treatmentNos > 0 ? inv.treatmentNos : 1;
-      final amt = inv.treatmentCharge > 0 ? inv.treatmentCharge : inv.totalAmount;
-      final rate = inv.treatmentRate > 0 ? inv.treatmentRate : (amt / nos);
+      double amt = inv.treatmentCharge > 0 ? inv.treatmentCharge : (inv.totalAmount - otherChargesSum);
+      if (amt <= 0 && inv.totalAmount > 0 && otherChargesSum == 0) amt = inv.totalAmount;
+      if (amt < 0) amt = 0.0;
+      final rate = inv.treatmentRate > 0 ? inv.treatmentRate : (nos > 0 ? (amt / nos) : amt);
       rows.add(InvoiceItemRow(
         index: rIdx++,
         treatment: inv.treatment,
@@ -106,11 +111,36 @@ class InvoiceReceiptDialog extends StatelessWidget {
     for (final c in inv.customCharges) {
       rows.add(InvoiceItemRow(
         index: rIdx++,
-        treatment: c.title,
+        treatment: c.title.isNotEmpty ? c.title : 'Extra Charge',
         nos: 1,
         rate: c.amount,
         amount: c.amount,
       ));
+    }
+
+    // Safety fallback: if treatment is empty, but totalAmount exceeds the known charges,
+    // ensure the unlisted procedure/treatment is displayed as the primary row
+    final currentRowsTotal = rows.fold<double>(0.0, (s, r) => s + r.amount);
+    if (inv.treatment.isEmpty && inv.totalAmount > (currentRowsTotal + 0.01)) {
+      final diff = inv.totalAmount - currentRowsTotal;
+      final desc = inv.notes.isNotEmpty ? inv.notes : 'Dental Treatment & Procedure';
+      rows.insert(0, InvoiceItemRow(
+        index: 1,
+        treatment: desc,
+        nos: 1,
+        rate: diff,
+        amount: diff,
+      ));
+      // Re-index rows
+      for (int i = 0; i < rows.length; i++) {
+        rows[i] = InvoiceItemRow(
+          index: i + 1,
+          treatment: rows[i].treatment,
+          nos: rows[i].nos,
+          rate: rows[i].rate,
+          amount: rows[i].amount,
+        );
+      }
     }
 
     if (rows.isEmpty) {
@@ -214,12 +244,12 @@ class InvoiceReceiptDialog extends StatelessWidget {
                 <div class="meta-field">
                     <span class="meta-label">Address</span>
                     <span class="meta-sep">:</span>
-                    <span class="meta-val">${inv.address}</span>
+                    <span class="meta-val">${inv.address.isNotEmpty ? inv.address : '-'}</span>
                 </div>
             </div>
             <div class="meta-right" style="text-align: right;">
                 <div>Date : $dateStr</div>
-                ${inv.opNumber.isNotEmpty ? '<div style="margin-top: 4px;">OP No : ${inv.opNumber}</div>' : ''}
+                <div style="margin-top: 4px;">OP No : ${inv.opNumber.isNotEmpty ? inv.opNumber : '-'}</div>
             </div>
         </div>
 
@@ -304,7 +334,7 @@ class InvoiceReceiptDialog extends StatelessWidget {
                     children: [
                       pw.Text(
                         'MANJALY MULTI SPECIALITY DENTAL CARE',
-                        style: pw.TextStyle(
+                        style: const pw.TextStyle(
                           fontSize: 14,
                           fontWeight: pw.FontWeight.bold,
                           letterSpacing: 0.5,
@@ -343,27 +373,27 @@ class InvoiceReceiptDialog extends StatelessWidget {
                       pw.Row(children: [
                         pw.Container(
                           width: 55,
-                          child: pw.Text('Bill No', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                          child: pw.Text('Bill No', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                         ),
-                        pw.Text(':  ', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                        pw.Text(billNo, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        pw.Text(':  ', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        pw.Text(billNo, style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                       ]),
                       pw.SizedBox(height: 4),
                       pw.Row(children: [
                         pw.Container(
                           width: 55,
-                          child: pw.Text('Name', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                          child: pw.Text('Name', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                         ),
-                        pw.Text(':  ', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        pw.Text(':  ', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                         pw.Text(inv.patientName, style: const pw.TextStyle(fontSize: 10)),
                       ]),
                       pw.SizedBox(height: 4),
                       pw.Row(children: [
                         pw.Container(
                           width: 55,
-                          child: pw.Text('Address', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                          child: pw.Text('Address', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                         ),
-                        pw.Text(':  ', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        pw.Text(':  ', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                         pw.Text(inv.address, style: const pw.TextStyle(fontSize: 10)),
                       ]),
                     ],
@@ -371,10 +401,10 @@ class InvoiceReceiptDialog extends StatelessWidget {
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
-                      pw.Text('Date : $dateStr', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                      pw.Text('Date : $dateStr', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                       if (inv.opNumber.isNotEmpty) ...[
                         pw.SizedBox(height: 4),
-                        pw.Text('OP No : ${inv.opNumber}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        pw.Text('OP No : ${inv.opNumber}', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                       ],
                     ],
                   ),
@@ -404,28 +434,28 @@ class InvoiceReceiptDialog extends StatelessWidget {
                     children: [
                       pw.Padding(
                         padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 4),
-                        child: pw.Center(child: pw.Text('#', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold))),
+                        child: pw.Center(child: pw.Text('#', style: const pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold))),
                       ),
                       pw.Padding(
                         padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6),
-                        child: pw.Text('Treatment', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold)),
+                        child: pw.Text('Treatment', style: const pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold)),
                       ),
                       pw.Padding(
                         padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 4),
-                        child: pw.Center(child: pw.Text('Nos', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold))),
+                        child: pw.Center(child: pw.Text('Nos', style: const pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold))),
                       ),
                       pw.Padding(
                         padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6),
                         child: pw.Align(
                           alignment: pw.Alignment.centerRight,
-                          child: pw.Text('Rate', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold)),
+                          child: pw.Text('Rate', style: const pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold)),
                         ),
                       ),
                       pw.Padding(
                         padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6),
                         child: pw.Align(
                           alignment: pw.Alignment.centerRight,
-                          child: pw.Text('Amount', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold)),
+                          child: pw.Text('Amount', style: const pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold)),
                         ),
                       ),
                     ],
@@ -490,7 +520,7 @@ class InvoiceReceiptDialog extends StatelessWidget {
                         padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 10),
                         child: pw.Align(
                           alignment: pw.Alignment.centerRight,
-                          child: pw.Text('Net Amount Rs:', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                          child: pw.Text('Net Amount Rs:', style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                         ),
                       ),
                     ),
@@ -502,7 +532,7 @@ class InvoiceReceiptDialog extends StatelessWidget {
                       ),
                       child: pw.Align(
                         alignment: pw.Alignment.centerRight,
-                        child: pw.Text(inv.totalAmount.toStringAsFixed(2), style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                        child: pw.Text(inv.totalAmount.toStringAsFixed(2), style: const pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                       ),
                     ),
                   ],
@@ -532,7 +562,7 @@ class InvoiceReceiptDialog extends StatelessWidget {
                       child: pw.Center(
                         child: pw.Text(
                           'FOR MANJALY MULTI SPECIALITY DENTAL CARE',
-                          style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
+                          style: const pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
                           textAlign: pw.TextAlign.center,
                         ),
                       ),
@@ -815,10 +845,8 @@ ${breakdownList.join('\n')}
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text('Date : $dateStr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black)),
-                      if (invoice.opNumber.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text('OP No : ${invoice.opNumber}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black)),
-                      ],
+                      const SizedBox(height: 4),
+                      Text('OP No : ${invoice.opNumber.isNotEmpty ? invoice.opNumber : '-'}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black)),
                     ],
                   ),
                 ],
@@ -838,8 +866,8 @@ ${breakdownList.join('\n')}
                       decoration: const BoxDecoration(
                         border: Border(bottom: BorderSide(color: Colors.black, width: 1)),
                       ),
-                      child: Row(
-                        children: const [
+                      child: const Row(
+                        children: [
                           SizedBox(width: 24, child: Center(child: Text('#', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black)))),
                           VerticalDivider(width: 8, color: Colors.black),
                           Expanded(child: Text('Treatment', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.black))),

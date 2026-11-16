@@ -241,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
         const urlParams = new URLSearchParams(window.location.search);
-        const autoQ = urlParams.get('query') || urlParams.get('phone') || urlParams.get('name') || urlParams.get('invoice') || urlParams.get('q');
+        const autoQ = urlParams.get('query') || urlParams.get('phone') || urlParams.get('name') || urlParams.get('op') || urlParams.get('invoice') || urlParams.get('q');
         autoTargetInvoiceNo = urlParams.get('invoice');
         shouldAutoOpenInvoice = urlParams.get('openInvoice') === 'true' || Boolean(autoTargetInvoiceNo);
 
@@ -983,13 +983,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     allInvoices.push({
                         invoiceNo: v.invoiceNo || 'INV-' + (v.timestamp ? v.timestamp.replace(/[^0-9]/g, '').slice(0, 8) : 'RECORD'),
                         timestamp: v.timestamp,
-                        patientName: v.fullName,
-                        phone: v.phone,
-                        doctorConsulted: v.doctorConsulted,
-                        consultationCharge: v.consultationCharge,
-                        xrayCharge: v.xrayCharge,
-                        pharmacyCharge: v.pharmacyCharge,
-                        totalAmount: v.totalAmount,
+                        opNumber: v.opNumber || (currentPatientProfile ? currentPatientProfile.opNumber : '') || '',
+                        patientName: v.fullName || (currentPatientProfile ? currentPatientProfile.fullName : ''),
+                        fullName: v.fullName || (currentPatientProfile ? currentPatientProfile.fullName : ''),
+                        phone: v.phone || (currentPatientProfile ? currentPatientProfile.phone : ''),
+                        address: v.address || (currentPatientProfile ? currentPatientProfile.address : '') || '',
+                        doctorConsulted: v.doctorConsulted || '',
+                        treatment: v.treatment || v.diseaseHistory || '',
+                        treatmentCharge: v.treatmentCharge || 0,
+                        treatmentNos: v.treatmentNos || 1,
+                        treatmentRate: v.treatmentRate || 0,
+                        consultationCharge: v.consultationCharge || 0,
+                        xrayCharge: v.xrayCharge || 0,
+                        pharmacyCharge: v.pharmacyCharge || 0,
+                        customCharges: v.customCharges || [],
+                        totalAmount: v.totalAmount || tot,
                         paymentMode: v.paymentMode || 'Cash',
                         driveFileUrl: v.driveFileUrl || ''
                     });
@@ -1049,50 +1057,107 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function showVisitInvoice(visit, patientProfile) {
         pendingInvoiceVisit = visit;
-        const consultation = parseFloat(visit.consultationCharge) || 0;
-        const xray = parseFloat(visit.xrayCharge) || 0;
-        const pharmacy = parseFloat(visit.pharmacyCharge) || 0;
-        const total = parseFloat(visit.totalAmount) || (consultation + xray + pharmacy);
 
-        let doctor = visit.doctorConsulted || (patientProfile ? patientProfile.doctorConsulted : '') || 'Attending Doctor';
-        if (doctor.toLowerCase().includes('consulting specialist')) doctor = 'Attending Doctor';
+        // Check for rich invoice in cached list or local storage
+        let richInv = null;
+        if (visit.invoiceNo) {
+            const cleanVInv = visit.invoiceNo.replace(/^INV-/, '').toLowerCase();
+            richInv = cachedInvoicesList.find(i => (i.invoiceNo || i.id || '').replace(/^INV-/, '').toLowerCase() === cleanVInv);
+            if (!richInv) {
+                try {
+                    const localRaw = localStorage.getItem('dental_cached_invoices');
+                    const localList = localRaw ? JSON.parse(localRaw) : [];
+                    richInv = localList.find(i => (i.invoiceNo || i.id || '').replace(/^INV-/, '').toLowerCase() === cleanVInv);
+                } catch(e) {}
+            }
+        }
+
+        const consultation = (richInv && parseFloat(richInv.consultationCharge) > 0) ? parseFloat(richInv.consultationCharge) : (parseFloat(visit.consultationCharge) || 0);
+        const xray = (richInv && parseFloat(richInv.xrayCharge) > 0) ? parseFloat(richInv.xrayCharge) : (parseFloat(visit.xrayCharge) || 0);
+        const pharmacy = (richInv && parseFloat(richInv.pharmacyCharge) > 0) ? parseFloat(richInv.pharmacyCharge) : (parseFloat(visit.pharmacyCharge) || 0);
+        const treatmentCharge = (richInv && parseFloat(richInv.treatmentCharge) > 0) ? parseFloat(richInv.treatmentCharge) : (parseFloat(visit.treatmentCharge) || 0);
+        const treatment = (richInv && richInv.treatment) ? richInv.treatment : (visit.treatment || visit.diseaseHistory || (patientProfile ? patientProfile.diseaseHistory : '') || '');
+        const treatmentNos = (richInv && (richInv.treatmentNos || richInv.nos)) || visit.treatmentNos || 1;
+        const treatmentRate = (richInv && (richInv.treatmentRate || richInv.rate)) || visit.treatmentRate || (treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : 0);
+        const customCharges = (richInv && Array.isArray(richInv.customCharges) && richInv.customCharges.length > 0) ? richInv.customCharges : (Array.isArray(visit.customCharges) ? visit.customCharges : []);
+        const total = (richInv && parseFloat(richInv.totalAmount) > 0) ? parseFloat(richInv.totalAmount) : (parseFloat(visit.totalAmount) || (consultation + xray + pharmacy + treatmentCharge));
+
+        let doctor = (richInv && richInv.doctorConsulted) || visit.doctorConsulted || (patientProfile ? patientProfile.doctorConsulted : '') || 'Dr. Jeswin Jose BDS';
+        if (doctor.toLowerCase().includes('consulting specialist')) doctor = 'Dr. Jeswin Jose BDS';
 
         currentSelectedInvoice = {
-            invoiceNo: visit.invoiceNo || ('INV-' + (visit.timestamp ? visit.timestamp.toString().replace(/\D/g, '').slice(0, 8) : Date.now().toString().slice(-6))),
-            timestamp: visit.timestamp || 'Recorded Visit',
-            fullName: visit.fullName || (patientProfile ? patientProfile.fullName : 'Valued Patient'),
-            phone: visit.phone || (patientProfile ? patientProfile.phone : 'N/A'),
+            invoiceNo: visit.invoiceNo || (richInv ? richInv.invoiceNo : '') || ('INV-' + (visit.timestamp ? visit.timestamp.toString().replace(/\D/g, '').slice(0, 8) : Date.now().toString().slice(-6))),
+            timestamp: visit.timestamp || (richInv ? richInv.timestamp : '') || 'Recorded Visit',
+            opNumber: visit.opNumber || (richInv ? richInv.opNumber : '') || (patientProfile ? patientProfile.opNumber : '') || '',
+            fullName: visit.fullName || (richInv ? (richInv.fullName || richInv.patientName) : '') || (patientProfile ? patientProfile.fullName : 'Valued Patient'),
+            phone: visit.phone || (richInv ? richInv.phone : '') || (patientProfile ? patientProfile.phone : 'N/A'),
+            address: visit.address || (richInv ? richInv.address : '') || (patientProfile ? patientProfile.address : '') || '',
             email: visit.email || (patientProfile ? patientProfile.email : 'N/A'),
             doctorConsulted: doctor,
-            paymentMode: visit.paymentMode || 'Cash',
+            treatment: treatment,
+            treatmentCharge: treatmentCharge,
+            treatmentNos: treatmentNos,
+            treatmentRate: treatmentRate,
+            customCharges: customCharges,
+            paymentMode: visit.paymentMode || (richInv ? richInv.paymentMode : '') || 'Cash',
             consultationCharge: consultation,
             xrayCharge: xray,
             pharmacyCharge: pharmacy,
             totalAmount: total,
-            driveFileUrl: visit.driveFileUrl || ''
+            driveFileUrl: visit.driveFileUrl || (richInv ? richInv.driveFileUrl : '') || ''
         };
 
         populateAndOpenViewModal(currentSelectedInvoice);
     }
 
     function showPastInvoiceModal(inv) {
-        let doctor = inv.doctorConsulted || (currentPatientProfile ? currentPatientProfile.doctorConsulted : '') || 'Attending Doctor';
-        if (doctor.toLowerCase().includes('consulting specialist')) doctor = 'Attending Doctor';
+        // Check for rich invoice in local storage or visits
+        let richInv = null;
+        if (inv.invoiceNo) {
+            const cleanInv = inv.invoiceNo.replace(/^INV-/, '').toLowerCase();
+            try {
+                const localRaw = localStorage.getItem('dental_cached_invoices');
+                const localList = localRaw ? JSON.parse(localRaw) : [];
+                richInv = localList.find(i => (i.invoiceNo || i.id || '').replace(/^INV-/, '').toLowerCase() === cleanInv);
+            } catch(e) {}
+        }
+
+        // Also check cachedVisitsList or visits
+        let matchedVisit = null;
+        if (inv.invoiceNo) {
+            const cleanInv = inv.invoiceNo.replace(/^INV-/, '').toLowerCase();
+            matchedVisit = cachedVisitsList.find(v => (v.invoiceNo || '').replace(/^INV-/, '').toLowerCase() === cleanInv);
+        }
+
+        let doctor = inv.doctorConsulted || (richInv ? richInv.doctorConsulted : '') || (matchedVisit ? matchedVisit.doctorConsulted : '') || (currentPatientProfile ? currentPatientProfile.doctorConsulted : '') || 'Dr. Jeswin Jose BDS';
+        if (doctor.toLowerCase().includes('consulting specialist')) doctor = 'Dr. Jeswin Jose BDS';
+
+        const treatment = inv.treatment || (richInv ? richInv.treatment : '') || (matchedVisit ? (matchedVisit.treatment || matchedVisit.diseaseHistory) : '') || (currentPatientProfile ? currentPatientProfile.diseaseHistory : '') || '';
+        const treatmentCharge = (parseFloat(inv.treatmentCharge) > 0) ? parseFloat(inv.treatmentCharge) : ((richInv && parseFloat(richInv.treatmentCharge) > 0) ? parseFloat(richInv.treatmentCharge) : (matchedVisit ? (parseFloat(matchedVisit.treatmentCharge) || 0) : 0));
+        const treatmentNos = inv.treatmentNos || (richInv ? (richInv.treatmentNos || richInv.nos) : 1);
+        const treatmentRate = inv.treatmentRate || (richInv ? (richInv.treatmentRate || richInv.rate) : (treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : 0));
+        const customCharges = (Array.isArray(inv.customCharges) && inv.customCharges.length > 0) ? inv.customCharges : ((richInv && Array.isArray(richInv.customCharges)) ? richInv.customCharges : (matchedVisit && Array.isArray(matchedVisit.customCharges) ? matchedVisit.customCharges : []));
 
         currentSelectedInvoice = {
             invoiceNo: inv.invoiceNo || ('INV-' + Date.now().toString().slice(-6)),
-            timestamp: inv.timestamp || 'Recorded Visit',
-            opNumber: inv.opNumber || (currentPatientProfile ? currentPatientProfile.opNumber : '') || '',
-            fullName: inv.patientName || (currentPatientProfile ? currentPatientProfile.fullName : 'Valued Patient'),
-            phone: inv.phone || (currentPatientProfile ? currentPatientProfile.phone : 'N/A'),
+            timestamp: inv.timestamp || (richInv ? richInv.timestamp : '') || 'Recorded Visit',
+            opNumber: inv.opNumber || (richInv ? richInv.opNumber : '') || (matchedVisit ? matchedVisit.opNumber : '') || (currentPatientProfile ? currentPatientProfile.opNumber : '') || '',
+            fullName: inv.patientName || inv.fullName || (richInv ? (richInv.patientName || richInv.fullName) : '') || (currentPatientProfile ? currentPatientProfile.fullName : 'Valued Patient'),
+            phone: inv.phone || (richInv ? richInv.phone : '') || (currentPatientProfile ? currentPatientProfile.phone : 'N/A'),
+            address: inv.address || (richInv ? richInv.address : '') || (matchedVisit ? matchedVisit.address : '') || (currentPatientProfile ? currentPatientProfile.address : '') || '',
             email: (currentPatientProfile ? currentPatientProfile.email : 'N/A'),
             doctorConsulted: doctor,
-            paymentMode: inv.paymentMode || 'Cash',
-            consultationCharge: parseFloat(inv.consultationCharge) || 0,
-            xrayCharge: parseFloat(inv.xrayCharge) || 0,
-            pharmacyCharge: parseFloat(inv.pharmacyCharge) || 0,
-            totalAmount: parseFloat(inv.totalAmount) || 0,
-            driveFileUrl: inv.driveFileUrl || ''
+            treatment: treatment,
+            treatmentCharge: treatmentCharge,
+            treatmentNos: treatmentNos,
+            treatmentRate: treatmentRate,
+            customCharges: customCharges,
+            paymentMode: inv.paymentMode || (richInv ? richInv.paymentMode : '') || 'Cash',
+            consultationCharge: parseFloat(inv.consultationCharge) || (richInv ? (parseFloat(richInv.consultationCharge) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.consultationCharge) || 0) : 0),
+            xrayCharge: parseFloat(inv.xrayCharge) || (richInv ? (parseFloat(richInv.xrayCharge) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.xrayCharge) || 0) : 0),
+            pharmacyCharge: parseFloat(inv.pharmacyCharge) || (richInv ? (parseFloat(richInv.pharmacyCharge) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.pharmacyCharge) || 0) : 0),
+            totalAmount: parseFloat(inv.totalAmount) || (richInv ? (parseFloat(richInv.totalAmount) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.totalAmount) || 0) : 0),
+            driveFileUrl: inv.driveFileUrl || (richInv ? richInv.driveFileUrl : '') || ''
         };
 
         populateAndOpenViewModal(currentSelectedInvoice);
@@ -1120,15 +1185,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const tAmt = parseFloat(inv.treatmentCharge) || 0;
             const xAmt = parseFloat(inv.xrayCharge) || 0;
             const pAmt = parseFloat(inv.pharmacyCharge) || 0;
-            const total = parseFloat(inv.totalAmount) || (cAmt + tAmt + xAmt + pAmt);
             const customs = Array.isArray(inv.customCharges) ? inv.customCharges : [];
+            const customSum = customs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+            const total = parseFloat(inv.totalAmount) || (cAmt + tAmt + xAmt + pAmt + customSum);
 
             const formatNum = (n) => (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
             if (inv.treatment && inv.treatment.trim().length > 0) {
-                const nos = inv.nos || 1;
-                const amt = tAmt > 0 ? tAmt : (total > 0 ? total : 0);
-                const rate = inv.rate ? parseFloat(inv.rate) : (amt / nos);
+                const nos = inv.nos || inv.treatmentNos || 1;
+                let amt = tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum));
+                if (amt < 0) amt = 0;
+                const rate = inv.rate || inv.treatmentRate ? parseFloat(inv.rate || inv.treatmentRate) : (nos > 0 ? (amt / nos) : amt);
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rIdx++}</td>
                     <td>${escapeHtml(inv.treatment)}</td>
@@ -1136,31 +1203,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td style="text-align: right;">${formatNum(rate)}</td>
                     <td style="text-align: right;">${formatNum(amt)}</td>
                 </tr>`;
-            } else if (cAmt > 0 || (tAmt === 0 && xAmt === 0 && pAmt === 0 && customs.length === 0)) {
-                const amt = cAmt > 0 ? cAmt : total;
-                rowHtml += `<tr>
-                    <td style="text-align: center;">${rIdx++}</td>
-                    <td>Consultation & Dental Examination</td>
-                    <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatNum(amt)}</td>
-                    <td style="text-align: right;">${formatNum(amt)}</td>
-                </tr>`;
             }
 
-            if (tAmt > 0 && !(inv.treatment && inv.treatment.trim().length > 0)) {
+            if (cAmt > 0) {
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rIdx++}</td>
-                    <td>Dental Treatment & Procedure</td>
+                    <td>Doctor Consultation Charge</td>
                     <td style="text-align: center;">1</td>
-                    <td style="text-align: right;">${formatNum(tAmt)}</td>
-                    <td style="text-align: right;">${formatNum(tAmt)}</td>
+                    <td style="text-align: right;">${formatNum(cAmt)}</td>
+                    <td style="text-align: right;">${formatNum(cAmt)}</td>
                 </tr>`;
             }
 
             if (xAmt > 0) {
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rIdx++}</td>
-                    <td>X-Ray Radiology Examination</td>
+                    <td>X-Ray Examination Charge</td>
                     <td style="text-align: center;">1</td>
                     <td style="text-align: right;">${formatNum(xAmt)}</td>
                     <td style="text-align: right;">${formatNum(xAmt)}</td>
@@ -1170,7 +1228,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (pAmt > 0) {
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rIdx++}</td>
-                    <td>Pharmacy & Medicines</td>
+                    <td>Pharmacy / Medicines Charge</td>
                     <td style="text-align: center;">1</td>
                     <td style="text-align: right;">${formatNum(pAmt)}</td>
                     <td style="text-align: right;">${formatNum(pAmt)}</td>
@@ -1178,6 +1236,39 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             customs.forEach(c => {
+                const amt = parseFloat(c.amount) || 0;
+                rowHtml += `<tr>
+                    <td style="text-align: center;">${rIdx++}</td>
+                    <td>${escapeHtml(c.title || 'Extra')}</td>
+                    <td style="text-align: center;">${c.nos || 1}</td>
+                    <td style="text-align: right;">${formatNum(parseFloat(c.rate) || amt)}</td>
+                    <td style="text-align: right;">${formatNum(amt)}</td>
+                </tr>`;
+            });
+
+            // Fallback: if treatment was empty but total is greater than known charges
+            const currentTotal = (inv.treatment ? (tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum))) : 0) + cAmt + xAmt + pAmt + customSum;
+            if (!inv.treatment && total > (currentTotal + 0.01)) {
+                const diff = total - currentTotal;
+                const desc = inv.notes || 'Dental Treatment & Procedure';
+                rowHtml = `<tr>
+                    <td style="text-align: center;">1</td>
+                    <td>${escapeHtml(desc)}</td>
+                    <td style="text-align: center;">1</td>
+                    <td style="text-align: right;">${formatNum(diff)}</td>
+                    <td style="text-align: right;">${formatNum(diff)}</td>
+                </tr>` + rowHtml;
+            }
+
+            if (!rowHtml) {
+                rowHtml = `<tr>
+                    <td style="text-align: center;">1</td>
+                    <td>Dental Consultation & Treatment</td>
+                    <td style="text-align: center;">1</td>
+                    <td style="text-align: right;">${formatNum(total)}</td>
+                    <td style="text-align: right;">${formatNum(total)}</td>
+                </tr>`;
+            }
                 const amt = parseFloat(c.amount) || 0;
                 rowHtml += `<tr>
                     <td style="text-align: center;">${rIdx++}</td>
@@ -1479,17 +1570,19 @@ Wishing you good oral health!
         const tAmt = parseFloat(inv.treatmentCharge) || 0;
         const xAmt = parseFloat(inv.xrayCharge) || 0;
         const pAmt = parseFloat(inv.pharmacyCharge) || 0;
-        const total = parseFloat(inv.totalAmount) || (cAmt + tAmt + xAmt + pAmt);
         const customs = Array.isArray(inv.customCharges) ? inv.customCharges : [];
+        const customSum = customs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+        const total = parseFloat(inv.totalAmount) || (cAmt + tAmt + xAmt + pAmt + customSum);
 
         const formatNum = (n) => (parseFloat(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         let rowsHtml = '';
         let rIdx = 1;
 
         if (inv.treatment && inv.treatment.trim().length > 0) {
-            const nos = inv.nos || 1;
-            const amt = tAmt > 0 ? tAmt : (total > 0 ? total : 0);
-            const rate = inv.rate ? parseFloat(inv.rate) : (amt / nos);
+            const nos = inv.nos || inv.treatmentNos || 1;
+            let amt = tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum));
+            if (amt < 0) amt = 0;
+            const rate = inv.rate || inv.treatmentRate ? parseFloat(inv.rate || inv.treatmentRate) : (nos > 0 ? (amt / nos) : amt);
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
                 <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(inv.treatment)}</td>
@@ -1497,31 +1590,22 @@ Wishing you good oral health!
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(rate)}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
             </tr>`;
-        } else if (cAmt > 0 || (tAmt === 0 && xAmt === 0 && pAmt === 0 && customs.length === 0)) {
-            const amt = cAmt > 0 ? cAmt : total;
-            rowsHtml += `<tr>
-                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">Consultation & Dental Examination</td>
-                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
-            </tr>`;
         }
 
-        if (tAmt > 0 && !(inv.treatment && inv.treatment.trim().length > 0)) {
+        if (cAmt > 0) {
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">Dental Treatment & Procedure</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">Doctor Consultation Charge</td>
                 <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(tAmt)}</td>
-                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(tAmt)}</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(cAmt)}</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(cAmt)}</td>
             </tr>`;
         }
 
         if (xAmt > 0) {
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">X-Ray Radiology Examination</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">X-Ray Examination Charge</td>
                 <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(xAmt)}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(xAmt)}</td>
@@ -1531,7 +1615,7 @@ Wishing you good oral health!
         if (pAmt > 0) {
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">Pharmacy & Medicines</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">Pharmacy / Medicines Charge</td>
                 <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(pAmt)}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(pAmt)}</td>
@@ -1542,12 +1626,36 @@ Wishing you good oral health!
             const amt = parseFloat(c.amount) || 0;
             rowsHtml += `<tr>
                 <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">${rIdx++}</td>
-                <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(c.title || 'Clinical Procedure')}</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(c.title || 'Extra')}</td>
                 <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">${c.nos || 1}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(parseFloat(c.rate) || amt)}</td>
                 <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(amt)}</td>
             </tr>`;
         });
+
+        // Fallback: if treatment was empty but total is greater than known charges
+        const currentSum = (inv.treatment ? (tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum))) : 0) + cAmt + xAmt + pAmt + customSum;
+        if (!inv.treatment && total > (currentSum + 0.01)) {
+            const diff = total - currentSum;
+            const desc = inv.notes || 'Dental Treatment & Procedure';
+            rowsHtml = `<tr>
+                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">1</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">${escapeHtml(desc)}</td>
+                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(diff)}</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(diff)}</td>
+            </tr>` + rowsHtml;
+        }
+
+        if (!rowsHtml) {
+            rowsHtml = `<tr>
+                <td style="text-align: center; border-left: 1px solid #000; border-right: 1px solid #000; padding: 7px 10px;">1</td>
+                <td style="border-right: 1px solid #000; padding: 7px 10px;">Dental Consultation & Treatment</td>
+                <td style="text-align: center; border-right: 1px solid #000; padding: 7px 10px;">1</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(total)}</td>
+                <td style="text-align: right; border-right: 1px solid #000; padding: 7px 10px;">${formatNum(total)}</td>
+            </tr>`;
+        }
 
         // Blank spacer row to match reference receipt pad
         rowsHtml += `<tr><td style="height: 180px; border-left: 1px solid #000; border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td><td style="border-right: 1px solid #000;"></td></tr>`;
