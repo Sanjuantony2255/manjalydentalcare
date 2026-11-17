@@ -191,6 +191,20 @@ class StorageService extends ChangeNotifier {
           final li = _invoices[localIdx];
           processedLocalIds.add(li.id);
 
+          final resolvedConsult = ci.consultationCharge > 0 ? ci.consultationCharge : li.consultationCharge;
+          final resolvedXray = ci.xrayCharge > 0 ? ci.xrayCharge : li.xrayCharge;
+          final resolvedPharm = ci.pharmacyCharge > 0 ? ci.pharmacyCharge : li.pharmacyCharge;
+          final resolvedCustoms = ci.customCharges.isNotEmpty ? ci.customCharges : li.customCharges;
+          final resolvedCustomSum = resolvedCustoms.fold<double>(0.0, (s, c) => s + c.amount);
+          final resolvedTotal = ci.totalAmount > 0 ? ci.totalAmount : li.totalAmount;
+          final knownSum = resolvedConsult + resolvedXray + resolvedPharm + resolvedCustomSum;
+          double resolvedTreatmentCharge = ci.treatmentCharge > 0 ? ci.treatmentCharge : li.treatmentCharge;
+          if (knownSum >= resolvedTotal) {
+            resolvedTreatmentCharge = 0.0;
+          } else {
+            resolvedTreatmentCharge = resolvedTotal - knownSum;
+          }
+
           // Merge preserving canonical cloud data while keeping any rich local entries
           mergedInvoices.add(Invoice(
             id: ci.id.isNotEmpty ? ci.id : li.id,
@@ -202,15 +216,15 @@ class StorageService extends ChangeNotifier {
             date: ci.date.isNotEmpty ? ci.date : li.date,
             address: ci.address.isNotEmpty ? ci.address : li.address,
             opNumber: ci.opNumber.isNotEmpty ? ci.opNumber : li.opNumber,
-            consultationCharge: ci.consultationCharge > 0 ? ci.consultationCharge : li.consultationCharge,
-            xrayCharge: ci.xrayCharge > 0 ? ci.xrayCharge : li.xrayCharge,
-            pharmacyCharge: ci.pharmacyCharge > 0 ? ci.pharmacyCharge : li.pharmacyCharge,
-            treatmentCharge: ci.treatmentCharge > 0 ? ci.treatmentCharge : li.treatmentCharge,
+            consultationCharge: resolvedConsult,
+            xrayCharge: resolvedXray,
+            pharmacyCharge: resolvedPharm,
+            treatmentCharge: resolvedTreatmentCharge,
             treatment: ci.treatment.isNotEmpty ? ci.treatment : li.treatment,
             treatmentNos: ci.treatmentNos > 0 ? ci.treatmentNos : li.treatmentNos,
-            treatmentRate: ci.treatmentRate > 0 ? ci.treatmentRate : li.treatmentRate,
-            customCharges: ci.customCharges.isNotEmpty ? ci.customCharges : li.customCharges,
-            totalAmount: ci.totalAmount > 0 ? ci.totalAmount : li.totalAmount,
+            treatmentRate: ci.treatmentRate > 0 ? ci.treatmentRate : (ci.treatmentNos > 0 && resolvedTreatmentCharge > 0 ? (resolvedTreatmentCharge / ci.treatmentNos) : resolvedTreatmentCharge),
+            customCharges: resolvedCustoms,
+            totalAmount: resolvedTotal,
             paymentMode: ci.paymentMode.isNotEmpty ? ci.paymentMode : li.paymentMode,
             notes: ci.notes.isNotEmpty ? ci.notes : li.notes,
           ));
@@ -329,12 +343,17 @@ class StorageService extends ChangeNotifier {
           }
 
           final known = newConsult + newXray + newPharm + updatedCustoms.fold<double>(0.0, (s, c) => s + c.amount);
-          if (newTreatmentCharge <= 0 && inv.totalAmount > known) {
-            newTreatmentCharge = inv.totalAmount - known;
-            updated = true;
-          } else if (newTreatmentCharge > 0 && inv.totalAmount > (newTreatmentCharge + known + 0.01)) {
-            newTreatmentCharge = inv.totalAmount - known;
-            updated = true;
+          if (known >= inv.totalAmount) {
+            if (newTreatmentCharge > 0) {
+              newTreatmentCharge = 0.0;
+              updated = true;
+            }
+          } else {
+            final expectedTreatment = inv.totalAmount - known;
+            if ((newTreatmentCharge - expectedTreatment).abs() > 0.01) {
+              newTreatmentCharge = expectedTreatment;
+              updated = true;
+            }
           }
 
           if (newTreatment.isEmpty && (newTreatmentCharge > 0 || inv.totalAmount > known)) {

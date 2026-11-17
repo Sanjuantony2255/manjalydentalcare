@@ -955,13 +955,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (!matchingInv && visit.timestamp) {
                 const vDate = visit.timestamp.toString().slice(0, 10);
-                matchingInv = cachedInvoicesList.find(inv =>
-                    inv.timestamp && (
-                        inv.timestamp.toString().slice(0, 10) === vDate ||
-                        inv.timestamp.toString().includes(vDate) ||
-                        visit.timestamp.toString().includes(inv.timestamp.toString().slice(0, 10))
-                    )
-                );
+                const vTot = parseFloat(visit.totalAmount) || 0;
+                matchingInv = cachedInvoicesList.find(inv => {
+                    const iDate = (inv.timestamp || inv.date || '').toString().slice(0, 10);
+                    const iTot = parseFloat(inv.totalAmount) || 0;
+                    return (iDate === vDate || inv.timestamp.toString().includes(vDate)) && (vTot <= 0 || Math.abs(iTot - vTot) < 1.0);
+                });
             }
 
             if (matchingInv) {
@@ -990,7 +989,14 @@ document.addEventListener('DOMContentLoaded', () => {
         visits.forEach(v => {
             const tot = parseFloat(v.totalAmount) || 0;
             if (tot > 0 || parseFloat(v.consultationCharge) > 0) {
-                const alreadyExists = allInvoices.some(inv => (inv.invoiceNo && inv.invoiceNo === v.invoiceNo) || (inv.timestamp === v.timestamp));
+                const alreadyExists = allInvoices.some(inv => {
+                    if (inv.invoiceNo && v.invoiceNo && inv.invoiceNo !== 'INV-SHEET' && v.invoiceNo !== 'INV-SHEET') {
+                        return inv.invoiceNo.trim().toLowerCase() === v.invoiceNo.trim().toLowerCase();
+                    }
+                    const invTot = parseFloat(inv.totalAmount) || 0;
+                    const vTot = parseFloat(v.totalAmount) || 0;
+                    return (inv.timestamp === v.timestamp || (inv.date && v.date && inv.date === v.date)) && Math.abs(invTot - vTot) < 1.0;
+                });
                 if (!alreadyExists) {
                     allInvoices.push({
                         invoiceNo: v.invoiceNo || 'INV-' + (v.timestamp ? v.timestamp.replace(/[^0-9]/g, '').slice(0, 8) : 'RECORD'),
@@ -1028,12 +1034,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         patientInvoicesList.innerHTML = `
             <div class="invoices-grid">
-                ${allInvoices.map((inv, idx) => `
+                ${allInvoices.map((inv, idx) => {
+                    const isReg = (idx === allInvoices.length - 1);
+                    const labelBadge = isReg
+                        ? `<span style="background: #e0f2fe; color: #0369a1; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem;">📋 Registration Invoice</span>`
+                        : `<span style="background: #f0fdf4; color: #15803d; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem;">🔄 Revisit Invoice</span>`;
+                    return `
                     <div class="inv-card-box">
                         <div class="inv-card-top">
                             <div class="inv-card-title-row">
                                 <span class="inv-badge-no">🧾 ${escapeHtml(inv.invoiceNo)}</span>
-                                <span class="inv-badge-paid">PAID</span>
+                                ${labelBadge}
                             </div>
                             <div class="inv-card-date">📅 ${escapeHtml(inv.timestamp)}</div>
                             <div class="inv-card-doctor">👨‍⚕️ ${escapeHtml(inv.doctorConsulted || 'Doctor')}</div>
@@ -1053,7 +1064,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             ` : ''}
                         </div>
                     </div>
-                `).join('')}
+                `;
+                }).join('')}
             </div>
         `;
 
@@ -1096,14 +1108,12 @@ document.addEventListener('DOMContentLoaded', () => {
         let otherKnown = consultation + xray + pharmacy + customSum;
         let total = (richInv && parseFloat(richInv.totalAmount) > 0) ? parseFloat(richInv.totalAmount) : (parseFloat(visit.totalAmount) || (otherKnown + treatmentCharge));
 
-        if (treatmentCharge <= 0 && total > otherKnown) {
+        if (otherKnown >= total) {
+            treatmentCharge = 0;
+        } else {
             treatmentCharge = total - otherKnown;
-            treatmentRate = treatmentNos > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
-            if (!treatment) treatment = (visit.diseaseHistory || (patientProfile ? patientProfile.diseaseHistory : '') || 'Dental Treatment & Procedure');
-        } else if (treatmentCharge > 0 && total > (treatmentCharge + otherKnown + 0.01)) {
-            treatmentCharge = total - otherKnown;
-            treatmentRate = treatmentNos > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
         }
+        treatmentRate = treatmentNos > 0 && treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
 
         let doctor = (richInv && richInv.doctorConsulted) || visit.doctorConsulted || (patientProfile ? patientProfile.doctorConsulted : '') || 'Dr. Jeswin Jose BDS';
         if (doctor.toLowerCase().includes('consulting specialist')) doctor = 'Dr. Jeswin Jose BDS';
@@ -1173,14 +1183,12 @@ document.addEventListener('DOMContentLoaded', () => {
         let otherKnown = consultation + xray + pharmacy + customSum;
         let total = parseFloat(inv.totalAmount) || (richInv ? (parseFloat(richInv.totalAmount) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.totalAmount) || 0) : (otherKnown + treatmentCharge));
 
-        if (treatmentCharge <= 0 && total > otherKnown) {
+        if (otherKnown >= total) {
+            treatmentCharge = 0;
+        } else {
             treatmentCharge = total - otherKnown;
-            treatmentRate = treatmentNos > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
-            if (!treatment) treatment = (matchedVisit && (matchedVisit.treatment || matchedVisit.diseaseHistory)) || (currentPatientProfile && currentPatientProfile.diseaseHistory) || 'Dental Treatment & Procedure';
-        } else if (treatmentCharge > 0 && total > (treatmentCharge + otherKnown + 0.01)) {
-            treatmentCharge = total - otherKnown;
-            treatmentRate = treatmentNos > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
         }
+        treatmentRate = treatmentNos > 0 && treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
 
         currentSelectedInvoice = {
             invoiceNo: inv.invoiceNo || ('INV-' + Date.now().toString().slice(-6)),
@@ -1237,12 +1245,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const treatDesc = (inv.treatment && inv.treatment.trim().length > 0) ? inv.treatment.trim() : (inv.notes || (currentPatientProfile && currentPatientProfile.diseaseHistory) || 'Dental Treatment & Procedure');
             const nos = parseInt(inv.nos || inv.treatmentNos, 10) || 1;
-            let amt = tAmt > 0 ? tAmt : (total > (cAmt + xAmt + pAmt + customSum) ? (total - (cAmt + xAmt + pAmt + customSum)) : 0);
-            if (amt <= 0 && total > 0 && (cAmt + xAmt + pAmt + customSum) === 0) amt = total;
-            if (amt < 0) amt = 0;
-            const rate = inv.rate || inv.treatmentRate ? parseFloat(inv.rate || inv.treatmentRate) : (nos > 0 ? (amt / nos) : amt);
+            let amt = 0;
+            if (total > (cAmt + xAmt + pAmt + customSum + 0.01)) {
+                amt = total - (cAmt + xAmt + pAmt + customSum);
+            } else if (tAmt > 0 && (cAmt + xAmt + pAmt + customSum) === 0) {
+                amt = total;
+            } else if (tAmt > 0 && Math.abs((cAmt + xAmt + pAmt + customSum + tAmt) - total) < 0.01) {
+                amt = tAmt;
+            }
+            const rate = nos > 0 && amt > 0 ? (amt / nos) : amt;
 
-            if (amt > 0 || (inv.treatment && inv.treatment.trim().length > 0 && inv.treatment.trim() !== '-' && inv.treatment.trim().toLowerCase() !== 'none')) {
+            if (amt > 0) {
                 items.push({ treatment: treatDesc, nos: nos, rate: rate, amount: amt });
             }
 
@@ -1260,18 +1273,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
             customs.forEach(c => {
                 const cAmtVal = parseFloat(c.amount) || 0;
-                items.push({ treatment: c.title || 'Extra Charge', nos: c.nos || 1, rate: parseFloat(c.rate) || cAmtVal, amount: cAmtVal });
+                if (cAmtVal > 0 || (c.title && c.title.length > 0)) {
+                    items.push({ treatment: c.title || 'Extra Charge', nos: c.nos || 1, rate: parseFloat(c.rate) || cAmtVal, amount: cAmtVal });
+                }
             });
 
-            // Reconcile with totalAmount
+            if (items.length === 0 && total > 0) {
+                items.push({ treatment: treatDesc, nos: 1, rate: total, amount: total });
+            }
+
+            // Mathematical guarantee: current rows total MUST match total exactly
             const currentSum = items.reduce((s, it) => s + it.amount, 0);
-            if (total > currentSum + 0.01) {
-                const diff = total - currentSum;
+            const diff = total - currentSum;
+            if (Math.abs(diff) > 0.01) {
                 const treatItem = items.find(it => !it.treatment.includes('Charge') && !it.treatment.includes('Fee') && !customs.some(c => c.title === it.treatment));
                 if (treatItem) {
                     treatItem.amount += diff;
-                    treatItem.rate = treatItem.nos > 0 ? (treatItem.amount / treatItem.nos) : treatItem.amount;
-                } else {
+                    if (treatItem.amount > 0) {
+                        treatItem.rate = treatItem.nos > 0 ? (treatItem.amount / treatItem.nos) : treatItem.amount;
+                    } else {
+                        const tIdx = items.indexOf(treatItem);
+                        items.splice(tIdx, 1);
+                    }
+                } else if (diff > 0) {
                     items.unshift({ treatment: treatDesc, nos: 1, rate: diff, amount: diff });
                 }
             }

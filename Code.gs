@@ -1641,10 +1641,13 @@ function handleSearchPatient(ss, params) {
           customSum += (parseFloat(parsedCustomList[cs].amount) || 0);
         }
         var numTot = parseFloat(tot) || ((parseFloat(consult) || 0) + (parseFloat(xray) || 0) + (parseFloat(pharm) || 0) + tCharge + customSum);
-        if (tCharge <= 0 && numTot > ((parseFloat(consult) || 0) + (parseFloat(xray) || 0) + (parseFloat(pharm) || 0) + customSum)) {
-          tCharge = numTot - ((parseFloat(consult) || 0) + (parseFloat(xray) || 0) + (parseFloat(pharm) || 0) + customSum);
-          tRate = tNos > 0 ? (tCharge / tNos) : tCharge;
+        var otherKnown = (parseFloat(consult) || 0) + (parseFloat(xray) || 0) + (parseFloat(pharm) || 0) + customSum;
+        if (otherKnown >= numTot) {
+          tCharge = 0;
+        } else {
+          tCharge = numTot - otherKnown;
         }
+        tRate = tNos > 0 && tCharge > 0 ? (tCharge / tNos) : tCharge;
 
         visits.push({
           timestamp: getRowVal(row, colTimestamp),
@@ -1777,12 +1780,12 @@ function handleSearchPatient(ss, params) {
               customSum += (parseFloat(parsedCustom[csIdx].amount) || 0);
             }
             var otherCharges = numConsult + numXray + numPharm + customSum;
-            var numTreatmentCharge = parseFloat(rowTreatmentCharge) || 0;
-            if (numTreatmentCharge <= 0 && numTot > otherCharges) {
+            var numTreatmentCharge = 0;
+            if (numTot > otherCharges) {
               numTreatmentCharge = numTot - otherCharges;
             }
             var numTreatmentNos = parseInt(rowTreatmentNos, 10) || 1;
-            var numTreatmentRate = parseFloat(rowTreatmentRate) || (numTreatmentNos > 0 ? (numTreatmentCharge / numTreatmentNos) : numTreatmentCharge);
+            var numTreatmentRate = parseFloat(rowTreatmentRate) || (numTreatmentNos > 0 && numTreatmentCharge > 0 ? (numTreatmentCharge / numTreatmentNos) : numTreatmentCharge);
 
             invoices.push({
               invoiceNo: iNoVal,
@@ -2054,10 +2057,13 @@ function handleGetPatients(ss) {
           customSum += (parseFloat(parsedCustomList[cs].amount) || 0);
         }
         var tot = parseFloat(getRowVal(row, colTotal)) || (consult + xray + pharm + tCharge + customSum);
-        if (tCharge <= 0 && tot > (consult + xray + pharm + customSum)) {
-          tCharge = tot - (consult + xray + pharm + customSum);
-          tRate = tNos > 0 ? (tCharge / tNos) : tCharge;
+        var otherKnown = consult + xray + pharm + customSum;
+        if (otherKnown >= tot) {
+          tCharge = 0;
+        } else {
+          tCharge = tot - otherKnown;
         }
+        tRate = tNos > 0 && tCharge > 0 ? (tCharge / tNos) : tCharge;
 
         var visitObj = {
           timestamp: getRowVal(row, colTimestamp),
@@ -2213,12 +2219,12 @@ function handleGetPatients(ss) {
             customSum += (parseFloat(parsedCustom[cIdx].amount) || 0);
           }
           var otherCharges = cCharge + xCharge + pCharge + customSum;
-          var tCharge = parseFloat(iTreatmentCharge) || 0;
-          if (tCharge <= 0 && iTot > otherCharges) {
+          var tCharge = 0;
+          if (iTot > otherCharges) {
             tCharge = iTot - otherCharges;
           }
           var tNos = parseInt(iTreatmentNos, 10) || 1;
-          var tRate = parseFloat(iTreatmentRate) || (tNos > 0 ? (tCharge / tNos) : tCharge);
+          var tRate = parseFloat(iTreatmentRate) || (tNos > 0 && tCharge > 0 ? (tCharge / tNos) : tCharge);
 
           var invObj = {
             invoiceNo: iNo,
@@ -2294,12 +2300,12 @@ function handleGetPatients(ss) {
               vCustSum += (parseFloat(vCustoms[vc].amount) || 0);
             }
             var vOther = vConsult + vXray + vPharm + vCustSum;
-            var vTreatCharge = parseFloat(v.treatmentCharge) || 0;
-            if (vTreatCharge <= 0 && vTot > vOther) {
+            var vTreatCharge = 0;
+            if (vTot > vOther) {
               vTreatCharge = vTot - vOther;
             }
             var vTreatNos = parseInt(v.treatmentNos || v.nos, 10) || 1;
-            var vTreatRate = parseFloat(v.treatmentRate) || (vTreatNos > 0 ? (vTreatCharge / vTreatNos) : vTreatCharge);
+            var vTreatRate = parseFloat(v.treatmentRate) || (vTreatNos > 0 && vTreatCharge > 0 ? (vTreatCharge / vTreatNos) : vTreatCharge);
 
             pat.invoices.push({
               invoiceNo: v.invoiceNo || ('INV-' + (v.timestamp ? v.timestamp.replace(/\D/g, '').slice(0, 8) : 'RECORD')),

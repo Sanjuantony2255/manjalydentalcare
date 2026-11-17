@@ -66,6 +66,11 @@ void main() {
           invoice.customCharges.fold(0.0, (acc, c) => acc + c.amount);
       expect(sum, 2700.0);
 
+      // Verify InvoiceReceiptDialog.getInvoiceItemRows exactly matches totalAmount
+      final rows = InvoiceReceiptDialog.getInvoiceItemRows(invoice);
+      final rowsSum = rows.fold<double>(0.0, (s, r) => s + r.amount);
+      expect(rowsSum, 2700.0);
+
       // JSON serialization & deserialization check
       final json = invoice.toJson();
       final fromJson = Invoice.fromJson(json);
@@ -75,6 +80,37 @@ void main() {
       expect(fromJson.customCharges[1].title, 'Anesthesia Kit');
       expect(fromJson.customCharges[1].amount, 200.0);
       expect(fromJson.totalAmount, 2700.0);
+    });
+
+    test('Invoice breakdown reconciles exactly when extra charges match total amount (Vishnu case)', () {
+      final invoice = Invoice(
+        id: '2026-11171158',
+        patientName: 'Vishnu',
+        phone: '8921399906',
+        doctor: 'Dr. Jeswin Jose BDS',
+        date: '17/11/2026',
+        consultationCharge: 0.0,
+        treatmentCharge: 450.0, // legacy sheet might have mistakenly calculated 450
+        xrayCharge: 200.0,
+        pharmacyCharge: 200.0,
+        customCharges: [
+          CustomChargeItem(title: 'SS', amount: 450.0),
+        ],
+        totalAmount: 850.0,
+        paymentMode: 'Cash',
+      );
+
+      final rows = InvoiceReceiptDialog.getInvoiceItemRows(invoice);
+      final rowsTotal = rows.fold<double>(0.0, (s, r) => s + r.amount);
+
+      // Rows total must equal net amount 850.0 exactly
+      expect(rowsTotal, 850.0);
+      // There must be 3 rows: X-Ray (200), Pharmacy (200), SS (450)
+      expect(rows.length, 3);
+      expect(rows.any((r) => r.treatment.contains('Dental Treatment')), false);
+      expect(rows.firstWhere((r) => r.treatment.contains('X-Ray')).amount, 200.0);
+      expect(rows.firstWhere((r) => r.treatment.contains('Pharmacy')).amount, 200.0);
+      expect(rows.firstWhere((r) => r.treatment == 'SS').amount, 450.0);
     });
 
     test('Appointment model properties', () {

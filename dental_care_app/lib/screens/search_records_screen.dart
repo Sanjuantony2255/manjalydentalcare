@@ -154,9 +154,9 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
     final customSum = customs.fold<double>(0.0, (s, c) => s + c.amount);
     final otherKnown = consult + xray + pharm + customSum;
 
-    if (tCharge <= 0 && inv.totalAmount > otherKnown) {
-      tCharge = inv.totalAmount - otherKnown;
-    } else if (tCharge > 0 && inv.totalAmount > (tCharge + otherKnown + 0.01)) {
+    if (otherKnown >= inv.totalAmount) {
+      tCharge = 0.0;
+    } else {
       tCharge = inv.totalAmount - otherKnown;
     }
 
@@ -258,7 +258,7 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
     final vCustoms = v.customCharges;
     final customSum = vCustoms.fold<double>(0.0, (s, c) => s + c.amount);
     final other = vConsult + vXray + vPharm + customSum;
-    final tCharge = v.treatmentCharge > 0 ? v.treatmentCharge : (v.amount > other ? (v.amount - other) : v.amount);
+    final tCharge = other >= v.amount ? 0.0 : (v.amount - other);
 
     return Invoice(
       id: v.invoiceId.isNotEmpty && v.invoiceId != 'INV-SHEET'
@@ -281,6 +281,217 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       notes: v.notes,
       address: p.address,
       opNumber: p.opNumber,
+    );
+  }
+
+  void _showInvoiceSelectorSheet(Patient patient, List<Invoice> invoices) {
+    final currency = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.65,
+          minChildSize: 0.4,
+          maxChildSize: 0.92,
+          expand: false,
+          builder: (_, scrollController) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: ListView(
+                controller: scrollController,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              patient.name,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Invoices & Receipts (${invoices.length} Available)',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF64748B),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (patient.opNumber.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primarySubtle,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            patient.opNumber,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                              color: AppTheme.primaryDark,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  ...invoices.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final inv = entry.value;
+                    final isReg = (idx == invoices.length - 1);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: isReg ? const Color(0xFFE0F2FE) : const Color(0xFFF0FDF4),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      isReg ? '📋 Registration Invoice' : '🔄 Revisit Invoice',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: isReg ? const Color(0xFF0369A1) : const Color(0xFF15803D),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    InvoiceReceiptDialog.cleanBillNo(inv.id),
+                                    style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 12,
+                                      color: AppTheme.primaryDark,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                currency.format(inv.totalAmount),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15,
+                                  color: AppTheme.primaryTeal,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Date: ${inv.date} • Dr. ${inv.doctor}',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                          ),
+                          if (inv.treatment.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Treatment: ${inv.treatment}',
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.primaryTeal),
+                            ),
+                          ],
+                          if (inv.customCharges.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Extra: ${inv.customCharges.map((c) => "${c.title}: ₹${c.amount.toStringAsFixed(0)}").join(", ")}',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                            ),
+                          ],
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    _openInvoice(inv);
+                                  },
+                                  icon: const Icon(Icons.receipt_long, size: 14),
+                                  label: const Text('Show Invoice'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppTheme.primaryTeal,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              OutlinedButton.icon(
+                                onPressed: () => InvoiceReceiptDialog.downloadInvoiceFile(context, inv),
+                                icon: const Icon(Icons.download, size: 14),
+                                label: const Text('Download'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppTheme.primaryDark,
+                                  side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1364,8 +1575,10 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: () {
-                            if (patientInvoices.isNotEmpty) {
+                            if (patientInvoices.length == 1) {
                               _openInvoice(patientInvoices.first);
+                            } else if (patientInvoices.length > 1) {
+                              _showInvoiceSelectorSheet(p, patientInvoices);
                             } else if (p.visits.isNotEmpty) {
                               _openInvoice(_findOrCreateInvoiceForVisit(p, p.visits.first));
                             } else {
@@ -1375,8 +1588,8 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
                           icon: const Icon(Icons.receipt_long, size: 14),
                           label: Text(
                             patientInvoices.length > 1
-                                ? 'Show Saved Invoice (${patientInvoices.length})'
-                                : 'Show Saved Invoice',
+                                ? 'Show Invoices (${patientInvoices.length})'
+                                : 'Show Invoice',
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.primaryTeal,

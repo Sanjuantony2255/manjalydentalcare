@@ -744,7 +744,9 @@ class ApiService {
 
             final knownCharges = consult + xray + pharm + customSum;
             double resolvedTreatmentCharge = tCharge;
-            if (resolvedTreatmentCharge <= 0 && total > knownCharges) {
+            if (knownCharges >= total) {
+              resolvedTreatmentCharge = 0.0;
+            } else {
               resolvedTreatmentCharge = total - knownCharges;
             }
             String resolvedTreatment = rawTreatment;

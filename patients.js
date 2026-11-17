@@ -158,8 +158,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const customs = Array.isArray(v.customCharges) ? v.customCharges : [];
                     const cSum = customs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
                     const otherSum = cVal + xVal + pVal + cSum;
-                    let tVal = parseFloat(v.treatmentCharge) || 0;
-                    if (tVal <= 0 && tot > otherSum) {
+                    let tVal = 0;
+                    if (tot > otherSum) {
                         tVal = tot - otherSum;
                     }
                     const nos = parseInt(v.treatmentNos || v.nos, 10) || 1;
@@ -234,10 +234,10 @@ document.addEventListener('DOMContentLoaded', () => {
             let tAmt = parseFloat(inv.treatmentCharge) || 0;
             const tot = parseFloat(inv.totalAmount) || (other + tAmt);
 
-            if (tAmt <= 0 && tot > other) {
-                tAmt = tot - other;
-                inv.treatmentCharge = tAmt;
-            } else if (tAmt > 0 && tot > (tAmt + other + 0.01)) {
+            if (other >= tot) {
+                tAmt = 0;
+                inv.treatmentCharge = 0;
+            } else {
                 tAmt = tot - other;
                 inv.treatmentCharge = tAmt;
             }
@@ -365,10 +365,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                 } else {
                                     const exist = mergedMap[key];
                                     if (!exist.opNumber && v.opNumber) exist.opNumber = v.opNumber;
-                                    const alreadyHasVisit = exist.visits.some(ev => 
-                                        (ev.timestamp && v.timestamp && ev.timestamp === v.timestamp) || 
-                                        (ev.invoiceNo && v.invoiceNo && ev.invoiceNo === v.invoiceNo)
-                                    );
+                                    const alreadyHasVisit = exist.visits.some(ev => {
+                                        if (ev.invoiceNo && v.invoiceNo && ev.invoiceNo !== 'INV-SHEET' && v.invoiceNo !== 'INV-SHEET') {
+                                            return ev.invoiceNo.trim().toLowerCase() === v.invoiceNo.trim().toLowerCase();
+                                        }
+                                        const evTot = parseFloat(ev.totalAmount) || 0;
+                                        const vTot = parseFloat(v.totalAmount) || 0;
+                                        return ev.timestamp && v.timestamp && ev.timestamp === v.timestamp && Math.abs(evTot - vTot) < 1.0;
+                                    });
                                     if (!alreadyHasVisit) {
                                         exist.visitsCount++;
                                         exist.totalBilled += tot;
@@ -630,9 +634,15 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <a href="appointments.html?name=${encodeURIComponent(patient.fullName || '')}&phone=${encodeURIComponent(patient.phone || '')}" class="mini-btn btn-quick-book" title="Book Appointment">
                                         <span>📅</span> Book
                                     </a>
-                                    <a href="${invRedirectUrl}" class="mini-btn btn-quick-search" style="background: #0d9488; color: white; font-weight: 700;" title="Search & Show Hospital Invoice">
-                                        <span>🧾</span> Invoice
-                                    </a>
+                                    ${(patient.invoices && patient.invoices.length > 1) ? `
+                                        <button type="button" class="mini-btn btn-view-patient" data-patient-idx="${idx}" style="background: #0d9488; color: white; font-weight: 700; border: none; cursor: pointer; padding: 4px 8px; border-radius: 6px;" title="Show all ${patient.invoices.length} invoices">
+                                            <span>🧾</span> Invoices (${patient.invoices.length})
+                                        </button>
+                                    ` : `
+                                        <a href="${invRedirectUrl}" class="mini-btn btn-quick-search" style="background: #0d9488; color: white; font-weight: 700;" title="Search & Show Hospital Invoice">
+                                            <span>🧾</span> Invoice
+                                        </a>
+                                    `}
                                 </div>
                             </div>
                         </div>
@@ -680,13 +690,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (invoices.length > 0) {
             invCardsHtml = `
                 <div style="margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
-                    ${invoices.map(inv => {
+                    ${invoices.map((inv, iIdx) => {
                         const invTot = parseFloat(inv.totalAmount) || 0;
+                        const isReg = (iIdx === invoices.length - 1);
+                        const labelBadge = isReg
+                            ? `<span style="background: #e0f2fe; color: #0369a1; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem;">📋 Registration</span>`
+                            : `<span style="background: #f0fdf4; color: #15803d; font-weight: 700; padding: 2px 6px; border-radius: 4px; font-size: 0.72rem;">🔄 Revisit</span>`;
                         const invUrl = `search.html?phone=${encodeURIComponent(patient.phone || '')}&name=${encodeURIComponent(patient.fullName || '')}&op=${encodeURIComponent(patient.opNumber || '')}&invoice=${encodeURIComponent(inv.invoiceNo || '')}&openInvoice=true`;
                         return `
                             <div style="display: flex; justify-content: space-between; align-items: center; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.6rem 0.8rem;">
                                 <div>
                                     <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                        ${labelBadge}
                                         <span style="font-family: monospace; font-weight: 700; font-size: 0.85rem; color: #1e3a8a;">${escapeHtml(inv.invoiceNo || 'INV')}</span>
                                         <span style="font-size: 0.78rem; color: #64748b;">• ${escapeHtml(inv.date || (inv.timestamp || '').split(' ')[0] || '')}</span>
                                     </div>
@@ -731,13 +746,20 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             modalVisitsTimeline.innerHTML = `
                 <div style="display: flex; flex-direction: column; gap: 0.7rem; margin-top: 0.4rem;">
-                    ${visits.map(v => {
+                    ${visits.map((v, vIdx) => {
                         const tot = parseFloat(v.totalAmount) || ((parseFloat(v.consultationCharge) || 0) + (parseFloat(v.xrayCharge) || 0) + (parseFloat(v.pharmacyCharge) || 0));
+                        const isRegVisit = (vIdx === visits.length - 1);
+                        const vLabel = isRegVisit
+                            ? `<span style="background: #e0f2fe; color: #0369a1; font-weight: 700; padding: 1px 6px; border-radius: 4px; font-size: 0.72rem;">📋 Registration Visit</span>`
+                            : `<span style="background: #f0fdf4; color: #15803d; font-weight: 700; padding: 1px 6px; border-radius: 4px; font-size: 0.72rem;">🔄 Revisit</span>`;
                         const vInvUrl = `search.html?phone=${encodeURIComponent(patient.phone || '')}&name=${encodeURIComponent(patient.fullName || '')}&invoice=${encodeURIComponent(v.invoiceNo || '')}&openInvoice=true`;
                         return `
                             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.8rem;">
                                 <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: #1e3a8a; font-weight: 600; margin-bottom: 0.2rem;">
-                                    <span>📅 ${escapeHtml(v.timestamp || 'Recorded Visit')}</span>
+                                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                        ${vLabel}
+                                        <span>📅 ${escapeHtml(v.timestamp || 'Recorded Visit')}</span>
+                                    </div>
                                     ${tot > 0 ? `<span style="color: #0f766e;">₹${tot.toFixed(2)}</span>` : ''}
                                 </div>
                                 <div style="font-size: 0.85rem; color: #334155;">
