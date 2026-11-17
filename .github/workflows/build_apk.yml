@@ -35,7 +35,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
+          cache: false
+
+      - name: 🧹 Flutter Clean
+        run: flutter clean
 
       - name: 📦 Install Flutter Dependencies
         run: flutter pub get
@@ -51,9 +54,7 @@ jobs:
           set -o pipefail
           chmod +x android/gradlew
           flutter build apk --release --android-skip-build-dependency-validation --no-tree-shake-icons 2>&1 | tee build.log || {
-            tail -n 60 build.log | while IFS= read -r line; do
-              echo "::error title=BuildLog::$line"
-            done
+            cat build.log
             exit 1
           }
 
