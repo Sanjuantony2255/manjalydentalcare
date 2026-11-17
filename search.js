@@ -623,10 +623,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     setTimeout(() => {
                         let matchingInv = null;
                         if (autoTargetInvoiceNo) {
-                            const cleanTarget = autoTargetInvoiceNo.toLowerCase().trim();
-                            matchingInv = invoices.find(i => i.invoiceNo && i.invoiceNo.toLowerCase().trim() === cleanTarget);
+                            const cleanTarget = autoTargetInvoiceNo.toLowerCase().trim().replace(/^inv-/, '');
+                            matchingInv = invoices.find(i => {
+                                const iClean = (i.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+                                return iClean === cleanTarget || (cleanTarget && iClean && (iClean.includes(cleanTarget) || cleanTarget.includes(iClean)));
+                            });
                             if (!matchingInv) {
-                                const vMatch = visits.find(v => v.invoiceNo && v.invoiceNo.toLowerCase().trim() === cleanTarget);
+                                const vMatch = visits.find(v => {
+                                    const vClean = (v.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+                                    return vClean === cleanTarget || (cleanTarget && vClean && (vClean.includes(cleanTarget) || cleanTarget.includes(vClean)));
+                                });
                                 if (vMatch) {
                                     showVisitInvoice(vMatch, currentPatientProfile);
                                     return;
@@ -1078,15 +1084,26 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const consultation = (richInv && parseFloat(richInv.consultationCharge) > 0) ? parseFloat(richInv.consultationCharge) : (parseFloat(visit.consultationCharge) || 0);
-        const xray = (richInv && parseFloat(richInv.xrayCharge) > 0) ? parseFloat(richInv.xrayCharge) : (parseFloat(visit.xrayCharge) || 0);
-        const pharmacy = (richInv && parseFloat(richInv.pharmacyCharge) > 0) ? parseFloat(richInv.pharmacyCharge) : (parseFloat(visit.pharmacyCharge) || 0);
-        const treatmentCharge = (richInv && parseFloat(richInv.treatmentCharge) > 0) ? parseFloat(richInv.treatmentCharge) : (parseFloat(visit.treatmentCharge) || 0);
-        const treatment = (richInv && richInv.treatment) ? richInv.treatment : (visit.treatment || visit.diseaseHistory || (patientProfile ? patientProfile.diseaseHistory : '') || '');
-        const treatmentNos = (richInv && (richInv.treatmentNos || richInv.nos)) || visit.treatmentNos || 1;
-        const treatmentRate = (richInv && (richInv.treatmentRate || richInv.rate)) || visit.treatmentRate || (treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : 0);
-        const customCharges = (richInv && Array.isArray(richInv.customCharges) && richInv.customCharges.length > 0) ? richInv.customCharges : (Array.isArray(visit.customCharges) ? visit.customCharges : []);
-        const total = (richInv && parseFloat(richInv.totalAmount) > 0) ? parseFloat(richInv.totalAmount) : (parseFloat(visit.totalAmount) || (consultation + xray + pharmacy + treatmentCharge));
+        let consultation = (richInv && parseFloat(richInv.consultationCharge) > 0) ? parseFloat(richInv.consultationCharge) : (parseFloat(visit.consultationCharge) || 0);
+        let xray = (richInv && parseFloat(richInv.xrayCharge) > 0) ? parseFloat(richInv.xrayCharge) : (parseFloat(visit.xrayCharge) || 0);
+        let pharmacy = (richInv && parseFloat(richInv.pharmacyCharge) > 0) ? parseFloat(richInv.pharmacyCharge) : (parseFloat(visit.pharmacyCharge) || 0);
+        let treatmentCharge = (richInv && parseFloat(richInv.treatmentCharge) > 0) ? parseFloat(richInv.treatmentCharge) : (parseFloat(visit.treatmentCharge) || 0);
+        let treatment = (richInv && richInv.treatment) ? richInv.treatment : (visit.treatment || visit.diseaseHistory || (patientProfile ? patientProfile.diseaseHistory : '') || '');
+        let treatmentNos = (richInv && (richInv.treatmentNos || richInv.nos)) || visit.treatmentNos || 1;
+        let treatmentRate = (richInv && (richInv.treatmentRate || richInv.rate)) || visit.treatmentRate || (treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : 0);
+        let customCharges = (richInv && Array.isArray(richInv.customCharges) && richInv.customCharges.length > 0) ? richInv.customCharges : (Array.isArray(visit.customCharges) ? visit.customCharges : []);
+        let customSum = customCharges.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+        let otherKnown = consultation + xray + pharmacy + customSum;
+        let total = (richInv && parseFloat(richInv.totalAmount) > 0) ? parseFloat(richInv.totalAmount) : (parseFloat(visit.totalAmount) || (otherKnown + treatmentCharge));
+
+        if (treatmentCharge <= 0 && total > otherKnown) {
+            treatmentCharge = total - otherKnown;
+            treatmentRate = treatmentNos > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
+            if (!treatment) treatment = (visit.diseaseHistory || (patientProfile ? patientProfile.diseaseHistory : '') || 'Dental Treatment & Procedure');
+        } else if (treatmentCharge > 0 && total > (treatmentCharge + otherKnown + 0.01)) {
+            treatmentCharge = total - otherKnown;
+            treatmentRate = treatmentNos > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
+        }
 
         let doctor = (richInv && richInv.doctorConsulted) || visit.doctorConsulted || (patientProfile ? patientProfile.doctorConsulted : '') || 'Dr. Jeswin Jose BDS';
         if (doctor.toLowerCase().includes('consulting specialist')) doctor = 'Dr. Jeswin Jose BDS';
@@ -1144,11 +1161,26 @@ document.addEventListener('DOMContentLoaded', () => {
         let doctor = inv.doctorConsulted || (richInv ? richInv.doctorConsulted : '') || (matchedVisit ? matchedVisit.doctorConsulted : '') || (currentPatientProfile ? currentPatientProfile.doctorConsulted : '') || 'Dr. Jeswin Jose BDS';
         if (doctor.toLowerCase().includes('consulting specialist')) doctor = 'Dr. Jeswin Jose BDS';
 
-        const treatment = inv.treatment || (richInv ? richInv.treatment : '') || (matchedVisit ? (matchedVisit.treatment || matchedVisit.diseaseHistory) : '') || (currentPatientProfile ? currentPatientProfile.diseaseHistory : '') || '';
-        const treatmentCharge = (parseFloat(inv.treatmentCharge) > 0) ? parseFloat(inv.treatmentCharge) : ((richInv && parseFloat(richInv.treatmentCharge) > 0) ? parseFloat(richInv.treatmentCharge) : (matchedVisit ? (parseFloat(matchedVisit.treatmentCharge) || 0) : 0));
-        const treatmentNos = inv.treatmentNos || (richInv ? (richInv.treatmentNos || richInv.nos) : 1);
-        const treatmentRate = inv.treatmentRate || (richInv ? (richInv.treatmentRate || richInv.rate) : (treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : 0));
-        const customCharges = (Array.isArray(inv.customCharges) && inv.customCharges.length > 0) ? inv.customCharges : ((richInv && Array.isArray(richInv.customCharges)) ? richInv.customCharges : (matchedVisit && Array.isArray(matchedVisit.customCharges) ? matchedVisit.customCharges : []));
+        let treatment = inv.treatment || (richInv ? richInv.treatment : '') || (matchedVisit ? (matchedVisit.treatment || matchedVisit.diseaseHistory) : '') || (currentPatientProfile ? currentPatientProfile.diseaseHistory : '') || '';
+        let treatmentCharge = (parseFloat(inv.treatmentCharge) > 0) ? parseFloat(inv.treatmentCharge) : ((richInv && parseFloat(richInv.treatmentCharge) > 0) ? parseFloat(richInv.treatmentCharge) : (matchedVisit ? (parseFloat(matchedVisit.treatmentCharge) || 0) : 0));
+        let treatmentNos = inv.treatmentNos || (richInv ? (richInv.treatmentNos || richInv.nos) : 1);
+        let treatmentRate = inv.treatmentRate || (richInv ? (richInv.treatmentRate || richInv.rate) : (treatmentCharge > 0 ? (treatmentCharge / treatmentNos) : 0));
+        let customCharges = (Array.isArray(inv.customCharges) && inv.customCharges.length > 0) ? inv.customCharges : ((richInv && Array.isArray(richInv.customCharges)) ? richInv.customCharges : (matchedVisit && Array.isArray(matchedVisit.customCharges) ? matchedVisit.customCharges : []));
+        let consultation = parseFloat(inv.consultationCharge) || (richInv ? (parseFloat(richInv.consultationCharge) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.consultationCharge) || 0) : 0);
+        let xray = parseFloat(inv.xrayCharge) || (richInv ? (parseFloat(richInv.xrayCharge) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.xrayCharge) || 0) : 0);
+        let pharmacy = parseFloat(inv.pharmacyCharge) || (richInv ? (parseFloat(richInv.pharmacyCharge) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.pharmacyCharge) || 0) : 0);
+        let customSum = customCharges.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+        let otherKnown = consultation + xray + pharmacy + customSum;
+        let total = parseFloat(inv.totalAmount) || (richInv ? (parseFloat(richInv.totalAmount) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.totalAmount) || 0) : (otherKnown + treatmentCharge));
+
+        if (treatmentCharge <= 0 && total > otherKnown) {
+            treatmentCharge = total - otherKnown;
+            treatmentRate = treatmentNos > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
+            if (!treatment) treatment = (matchedVisit && (matchedVisit.treatment || matchedVisit.diseaseHistory)) || (currentPatientProfile && currentPatientProfile.diseaseHistory) || 'Dental Treatment & Procedure';
+        } else if (treatmentCharge > 0 && total > (treatmentCharge + otherKnown + 0.01)) {
+            treatmentCharge = total - otherKnown;
+            treatmentRate = treatmentNos > 0 ? (treatmentCharge / treatmentNos) : treatmentCharge;
+        }
 
         currentSelectedInvoice = {
             invoiceNo: inv.invoiceNo || ('INV-' + Date.now().toString().slice(-6)),
@@ -1165,10 +1197,10 @@ document.addEventListener('DOMContentLoaded', () => {
             treatmentRate: treatmentRate,
             customCharges: customCharges,
             paymentMode: inv.paymentMode || (richInv ? richInv.paymentMode : '') || 'Cash',
-            consultationCharge: parseFloat(inv.consultationCharge) || (richInv ? (parseFloat(richInv.consultationCharge) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.consultationCharge) || 0) : 0),
-            xrayCharge: parseFloat(inv.xrayCharge) || (richInv ? (parseFloat(richInv.xrayCharge) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.xrayCharge) || 0) : 0),
-            pharmacyCharge: parseFloat(inv.pharmacyCharge) || (richInv ? (parseFloat(richInv.pharmacyCharge) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.pharmacyCharge) || 0) : 0),
-            totalAmount: parseFloat(inv.totalAmount) || (richInv ? (parseFloat(richInv.totalAmount) || 0) : 0) || (matchedVisit ? (parseFloat(matchedVisit.totalAmount) || 0) : 0),
+            consultationCharge: consultation,
+            xrayCharge: xray,
+            pharmacyCharge: pharmacy,
+            totalAmount: total,
             driveFileUrl: inv.driveFileUrl || (richInv ? richInv.driveFileUrl : '') || ''
         };
 
@@ -1203,12 +1235,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const items = [];
 
-            if (inv.treatment && inv.treatment.trim().length > 0) {
-                const nos = inv.nos || inv.treatmentNos || 1;
-                let amt = tAmt > 0 ? tAmt : (total - (cAmt + xAmt + pAmt + customSum));
-                if (amt < 0) amt = 0;
-                const rate = inv.rate || inv.treatmentRate ? parseFloat(inv.rate || inv.treatmentRate) : (nos > 0 ? (amt / nos) : amt);
-                items.push({ treatment: inv.treatment.trim(), nos: nos, rate: rate, amount: amt });
+            const treatDesc = (inv.treatment && inv.treatment.trim().length > 0) ? inv.treatment.trim() : (inv.notes || (currentPatientProfile && currentPatientProfile.diseaseHistory) || 'Dental Treatment & Procedure');
+            const nos = parseInt(inv.nos || inv.treatmentNos, 10) || 1;
+            let amt = tAmt > 0 ? tAmt : (total > (cAmt + xAmt + pAmt + customSum) ? (total - (cAmt + xAmt + pAmt + customSum)) : 0);
+            if (amt <= 0 && total > 0 && (cAmt + xAmt + pAmt + customSum) === 0) amt = total;
+            if (amt < 0) amt = 0;
+            const rate = inv.rate || inv.treatmentRate ? parseFloat(inv.rate || inv.treatmentRate) : (nos > 0 ? (amt / nos) : amt);
+
+            if (amt > 0 || (inv.treatment && inv.treatment.trim().length > 0 && inv.treatment.trim() !== '-' && inv.treatment.trim().toLowerCase() !== 'none')) {
+                items.push({ treatment: treatDesc, nos: nos, rate: rate, amount: amt });
             }
 
             if (cAmt > 0) {
@@ -1224,21 +1259,20 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             customs.forEach(c => {
-                const amt = parseFloat(c.amount) || 0;
-                items.push({ treatment: c.title || 'Extra Charge', nos: c.nos || 1, rate: parseFloat(c.rate) || amt, amount: amt });
+                const cAmtVal = parseFloat(c.amount) || 0;
+                items.push({ treatment: c.title || 'Extra Charge', nos: c.nos || 1, rate: parseFloat(c.rate) || cAmtVal, amount: cAmtVal });
             });
 
             // Reconcile with totalAmount
             const currentSum = items.reduce((s, it) => s + it.amount, 0);
             if (total > currentSum + 0.01) {
                 const diff = total - currentSum;
-                const treatItem = items.find(it => !it.treatment.includes('Charge') && !it.treatment.includes('Fee'));
+                const treatItem = items.find(it => !it.treatment.includes('Charge') && !it.treatment.includes('Fee') && !customs.some(c => c.title === it.treatment));
                 if (treatItem) {
                     treatItem.amount += diff;
                     treatItem.rate = treatItem.nos > 0 ? (treatItem.amount / treatItem.nos) : treatItem.amount;
                 } else {
-                    const desc = inv.treatment || inv.notes || (currentPatientProfile && currentPatientProfile.diseaseHistory) || 'Dental Treatment & Procedure';
-                    items.unshift({ treatment: desc, nos: 1, rate: diff, amount: diff });
+                    items.unshift({ treatment: treatDesc, nos: 1, rate: diff, amount: diff });
                 }
             }
 

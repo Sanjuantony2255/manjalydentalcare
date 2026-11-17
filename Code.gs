@@ -292,6 +292,7 @@ function getVisitsSheet(ss) {
 function appendVisitRowMapped(sheet, data, headers) {
   var headerValues = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length)).getValues()[0];
   var row = [];
+  var customStr = Array.isArray(data.customCharges) ? JSON.stringify(data.customCharges) : (data.customCharges ? data.customCharges.toString() : '');
   
   for (var c = 0; c < headerValues.length; c++) {
     var h = (headerValues[c] || '').toString().toLowerCase().trim();
@@ -310,9 +311,14 @@ function appendVisitRowMapped(sheet, data, headers) {
     else if (h.indexOf('allerg') !== -1 || h.indexOf('drug') !== -1 || h.indexOf('disease') !== -1) val = data.drugAllergies || data.diseaseHistory || '';
     else if (h.indexOf('last') !== -1 && h.indexOf('visit') !== -1) val = data.lastVisitDate || '';
     else if (h.indexOf('doctor') !== -1) val = data.doctorConsulted || '';
+    else if (h.indexOf('treatment charge') !== -1 || h.indexOf('procedure charge') !== -1) val = (parseFloat(data.treatmentCharge) || 0).toFixed(2);
+    else if (h.indexOf('treatment nos') !== -1 || h.indexOf('nos') !== -1) val = (data.treatmentNos || data.nos || 1).toString();
+    else if (h.indexOf('treatment rate') !== -1 || h.indexOf('rate') !== -1) val = (parseFloat(data.treatmentRate || data.rate) || parseFloat(data.treatmentCharge) || 0).toFixed(2);
+    else if (h.indexOf('treatment') !== -1 || h.indexOf('procedure') !== -1) val = data.treatment || data.diseaseHistory || '';
     else if (h.indexOf('consult') !== -1) val = (parseFloat(data.consultationCharge) || 0).toFixed(2);
     else if (h.indexOf('xray') !== -1 || h.indexOf('x-ray') !== -1) val = (parseFloat(data.xrayCharge) || 0).toFixed(2);
     else if (h.indexOf('pharm') !== -1 || h.indexOf('medicin') !== -1) val = (parseFloat(data.pharmacyCharge) || 0).toFixed(2);
+    else if (h.indexOf('custom') !== -1 || h.indexOf('extra') !== -1) val = customStr;
     else if (h.indexOf('total') !== -1 || h.indexOf('amount') !== -1) val = (parseFloat(data.totalAmount) || 0).toFixed(2);
     else if (h.indexOf('payment') !== -1 || h.indexOf('mode') !== -1) val = data.paymentMode || 'Cash';
     else if (h.indexOf('invoice') !== -1 && h.indexOf('drive') === -1 && h.indexOf('url') === -1) val = data.invoiceNo || '';
@@ -680,6 +686,9 @@ function handlePatientRegistration(ss, data) {
     drugAllergies: data.drugAllergies || data.diseaseHistory || '',
     treatment: data.treatment || data.diseaseHistory || '',
     treatmentCharge: treatmentCharge,
+    treatmentNos: treatmentNos,
+    treatmentRate: treatmentRate,
+    customCharges: customCharges,
     lastVisitDate: data.lastVisitDate || data.date || timestamp,
     doctorConsulted: docName,
     consultationCharge: consultation,
@@ -692,7 +701,7 @@ function handlePatientRegistration(ss, data) {
   };
   appendVisitRowMapped(visitsSheet, visitRecord, [
     'Timestamp', 'OP Number', 'Full Name', 'Phone', 'Email', 'DOB', 'Gender', 
-    'Medical History', 'Disease History', 'Last Visit Date', 'Doctor Consulted',
+    'Medical History', 'Disease History', 'Treatment', 'Treatment Charge', 'Treatment Nos', 'Treatment Rate', 'Custom Charges', 'Last Visit Date', 'Doctor Consulted',
     'Consultation Charge', 'X-Ray Charge', 'Pharmacy Charge', 'Total Amount', 
     'Payment Mode', 'Invoice No', 'Google Drive Invoice URL'
   ]);
@@ -1551,9 +1560,14 @@ function handleSearchPatient(ss, params) {
     var colDisease = getHeaderColumnIndex(headersLower, ['disease'], [], 7);
     var colLastVisit = getHeaderColumnIndex(headersLower, ['last visit', 'lastvisit'], [], 8);
     var colDoctor = getHeaderColumnIndex(headersLower, ['doctor', 'consulted', 'dentist'], ['charge', 'fee', 'amount'], 9);
+    var colTreatment = getHeaderColumnIndex(headersLower, ['treatment name', 'treatment procedure', 'treatment'], ['charge', 'rate', 'cost', 'fee', 'amount', 'nos'], -1);
+    var colTreatmentCharge = getHeaderColumnIndex(headersLower, ['treatment charge', 'procedure charge', 'treatment fee'], [], -1);
+    var colTreatmentNos = getHeaderColumnIndex(headersLower, ['treatment nos', 'nos', 'qty'], [], -1);
+    var colTreatmentRate = getHeaderColumnIndex(headersLower, ['treatment rate', 'rate'], [], -1);
     var colConsult = getHeaderColumnIndex(headersLower, ['consultation charge', 'consult charge', 'consultation fee', 'consult fee', 'consultation', 'consult'], ['doctor', 'dentist', 'specialist'], 10);
     var colXray = getHeaderColumnIndex(headersLower, ['xray', 'x-ray'], [], 11);
     var colPharm = getHeaderColumnIndex(headersLower, ['pharm', 'medicin'], [], 12);
+    var colCustom = getHeaderColumnIndex(headersLower, ['custom charges', 'custom', 'extra'], [], -1);
     var colTotal = getHeaderColumnIndex(headersLower, ['total amount', 'total', 'amount'], [], 13);
     var colPayment = getHeaderColumnIndex(headersLower, ['payment', 'mode'], [], 14);
     var colInvoice = getHeaderColumnIndex(headersLower, ['invoice no', 'invoice number', 'invoice'], ['drive', 'url', 'file'], 15);
@@ -1611,6 +1625,26 @@ function handleSearchPatient(ss, params) {
         var pMode = getRowVal(row, colPayment) || 'Cash';
         var invNoVal = getRowVal(row, colInvoice);
         var dUrl = getRowVal(row, colDrive);
+        var tDesc = colTreatment >= 0 ? getRowVal(row, colTreatment) : getRowVal(row, colDisease);
+        var tCharge = colTreatmentCharge >= 0 ? (parseFloat(getRowVal(row, colTreatmentCharge)) || 0) : 0;
+        var tNos = colTreatmentNos >= 0 ? (parseInt(getRowVal(row, colTreatmentNos), 10) || 1) : 1;
+        var tRate = colTreatmentRate >= 0 ? (parseFloat(getRowVal(row, colTreatmentRate)) || 0) : (tNos > 0 && tCharge > 0 ? (tCharge / tNos) : tCharge);
+        var rawCustomStr = colCustom >= 0 ? getRowVal(row, colCustom) : '';
+        var parsedCustomList = [];
+        if (rawCustomStr) {
+          try {
+            parsedCustomList = JSON.parse(rawCustomStr);
+          } catch(e) {}
+        }
+        var customSum = 0;
+        for (var cs = 0; cs < parsedCustomList.length; cs++) {
+          customSum += (parseFloat(parsedCustomList[cs].amount) || 0);
+        }
+        var numTot = parseFloat(tot) || ((parseFloat(consult) || 0) + (parseFloat(xray) || 0) + (parseFloat(pharm) || 0) + tCharge + customSum);
+        if (tCharge <= 0 && numTot > ((parseFloat(consult) || 0) + (parseFloat(xray) || 0) + (parseFloat(pharm) || 0) + customSum)) {
+          tCharge = numTot - ((parseFloat(consult) || 0) + (parseFloat(xray) || 0) + (parseFloat(pharm) || 0) + customSum);
+          tRate = tNos > 0 ? (tCharge / tNos) : tCharge;
+        }
 
         visits.push({
           timestamp: getRowVal(row, colTimestamp),
@@ -1624,6 +1658,11 @@ function handleSearchPatient(ss, params) {
           gender: getRowVal(row, colGender),
           medicalHistory: getRowVal(row, colMedical),
           diseaseHistory: getRowVal(row, colDisease),
+          treatment: tDesc || getRowVal(row, colDisease),
+          treatmentCharge: tCharge,
+          treatmentNos: tNos,
+          treatmentRate: tRate,
+          customCharges: parsedCustomList,
           lastVisitDate: getRowVal(row, colLastVisit),
           doctorConsulted: docVal,
           consultationCharge: consult,
@@ -1922,9 +1961,14 @@ function handleGetPatients(ss) {
       var colDisease = getHeaderColumnIndex(headersLower, ['disease', 'complaint', 'treatment', 'procedure'], [], 7);
       var colLastVisit = getHeaderColumnIndex(headersLower, ['last visit', 'lastvisit', 'visit date', 'date'], [], 8);
       var colDoctor = getHeaderColumnIndex(headersLower, ['doctor', 'consulted', 'dentist'], ['charge', 'fee', 'amount'], 9);
+      var colTreatment = getHeaderColumnIndex(headersLower, ['treatment name', 'treatment procedure', 'treatment'], ['charge', 'rate', 'cost', 'fee', 'amount', 'nos'], -1);
+      var colTreatmentCharge = getHeaderColumnIndex(headersLower, ['treatment charge', 'procedure charge', 'treatment fee'], [], -1);
+      var colTreatmentNos = getHeaderColumnIndex(headersLower, ['treatment nos', 'nos', 'qty'], [], -1);
+      var colTreatmentRate = getHeaderColumnIndex(headersLower, ['treatment rate', 'rate'], [], -1);
       var colConsult = getHeaderColumnIndex(headersLower, ['consultation charge', 'consult charge', 'consultation fee', 'consult fee', 'consultation', 'consult'], ['doctor', 'dentist', 'specialist'], 10);
       var colXray = getHeaderColumnIndex(headersLower, ['xray', 'x-ray'], [], 11);
       var colPharm = getHeaderColumnIndex(headersLower, ['pharm', 'medicin'], [], 12);
+      var colCustom = getHeaderColumnIndex(headersLower, ['custom charges', 'custom', 'extra'], [], -1);
       var colTotal = getHeaderColumnIndex(headersLower, ['total amount', 'total', 'amount', 'fee'], [], 13);
       var colPayment = getHeaderColumnIndex(headersLower, ['payment', 'mode'], [], 14);
       var colInvoice = getHeaderColumnIndex(headersLower, ['invoice no', 'invoice number', 'invoice'], ['drive', 'url', 'file'], 15);
@@ -1978,13 +2022,37 @@ function handleGetPatients(ss) {
         }
         var xray = parseFloat(getRowVal(row, colXray)) || 0;
         var pharm = parseFloat(getRowVal(row, colPharm)) || 0;
-        var tot = parseFloat(getRowVal(row, colTotal)) || (consult + xray + pharm);
+        var tDesc = colTreatment >= 0 ? getRowVal(row, colTreatment) : getRowVal(row, colDisease);
+        var tCharge = colTreatmentCharge >= 0 ? (parseFloat(getRowVal(row, colTreatmentCharge)) || 0) : 0;
+        var tNos = colTreatmentNos >= 0 ? (parseInt(getRowVal(row, colTreatmentNos), 10) || 1) : 1;
+        var tRate = colTreatmentRate >= 0 ? (parseFloat(getRowVal(row, colTreatmentRate)) || 0) : (tNos > 0 && tCharge > 0 ? (tCharge / tNos) : tCharge);
+        var rawCustomStr = colCustom >= 0 ? getRowVal(row, colCustom) : '';
+        var parsedCustomList = [];
+        if (rawCustomStr) {
+          try {
+            parsedCustomList = JSON.parse(rawCustomStr);
+          } catch(e) {}
+        }
+        var customSum = 0;
+        for (var cs = 0; cs < parsedCustomList.length; cs++) {
+          customSum += (parseFloat(parsedCustomList[cs].amount) || 0);
+        }
+        var tot = parseFloat(getRowVal(row, colTotal)) || (consult + xray + pharm + tCharge + customSum);
+        if (tCharge <= 0 && tot > (consult + xray + pharm + customSum)) {
+          tCharge = tot - (consult + xray + pharm + customSum);
+          tRate = tNos > 0 ? (tCharge / tNos) : tCharge;
+        }
 
         var visitObj = {
           timestamp: getRowVal(row, colTimestamp),
           doctorConsulted: doc,
           medicalHistory: getRowVal(row, colMedical),
           diseaseHistory: getRowVal(row, colDisease),
+          treatment: tDesc || getRowVal(row, colDisease),
+          treatmentCharge: tCharge,
+          treatmentNos: tNos,
+          treatmentRate: tRate,
+          customCharges: parsedCustomList,
           lastVisitDate: getRowVal(row, colLastVisit),
           consultationCharge: consult,
           xrayCharge: xray,

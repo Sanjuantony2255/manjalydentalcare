@@ -565,6 +565,35 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         ? combinedTreatments
         : _diseaseHistoryController.text.trim();
 
+    final customChargesList = _customChargeRows
+        .map((r) => CustomChargeItem(
+              title: r['title']?.text.trim() ?? '',
+              amount: double.tryParse(r['amount']?.text.trim() ?? '') ?? 0.0,
+            ))
+        .where((c) => c.title.isNotEmpty || c.amount > 0)
+        .toList();
+
+    final tChargeVal = double.tryParse(_treatmentChargeController.text) ?? 0.0;
+    final consultVal = double.tryParse(_consultationController.text) ?? 0.0;
+    final xrayVal = double.tryParse(_xrayController.text) ?? 0.0;
+    final pharmVal = double.tryParse(_pharmacyController.text) ?? 0.0;
+    final treatText = _treatmentController.text.trim().isNotEmpty
+        ? _treatmentController.text.trim()
+        : effectiveDisease;
+
+    final newVisit = VisitRecord(
+      date: selectedDateStr,
+      doctor: effectiveDoctor,
+      notes: treatText,
+      invoiceId: invId,
+      amount: _totalAmount,
+      consultationCharge: consultVal,
+      xrayCharge: xrayVal,
+      pharmacyCharge: pharmVal,
+      treatmentCharge: tChargeVal,
+      customCharges: customChargesList,
+    );
+
     final patient = Patient(
       id: patientId,
       opNumber: opNumber,
@@ -579,17 +608,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       drugAllergies: _drugAllergiesController.text.trim(),
       diseaseHistory: effectiveDisease,
       registrationDate: selectedDateStr,
+      totalVisits: 1,
+      totalBilled: _totalAmount,
+      visits: [newVisit],
     );
 
-    final customChargesList = _customChargeRows
-        .map((r) => CustomChargeItem(
-              title: r['title']?.text.trim() ?? '',
-              amount: double.tryParse(r['amount']?.text.trim() ?? '') ?? 0.0,
-            ))
-        .where((c) => c.title.isNotEmpty || c.amount > 0)
-        .toList();
-
-    final tChargeVal = double.tryParse(_treatmentChargeController.text) ?? 0.0;
     final invoice = Invoice(
       id: invId,
       patientName: patient.name,
@@ -598,15 +621,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
       date: selectedDateStr,
       address: patient.address,
       opNumber: patient.opNumber,
-      consultationCharge: double.tryParse(_consultationController.text) ?? 0.0,
+      consultationCharge: consultVal,
       treatmentCharge: tChargeVal,
-      treatment: _treatmentController.text.trim().isNotEmpty
-          ? _treatmentController.text.trim()
-          : effectiveDisease,
+      treatment: treatText,
       treatmentNos: 1,
       treatmentRate: tChargeVal,
-      xrayCharge: double.tryParse(_xrayController.text) ?? 0.0,
-      pharmacyCharge: double.tryParse(_pharmacyController.text) ?? 0.0,
+      xrayCharge: xrayVal,
+      pharmacyCharge: pharmVal,
       customCharges: customChargesList,
       totalAmount: _totalAmount,
       paymentMode: _paymentMode,

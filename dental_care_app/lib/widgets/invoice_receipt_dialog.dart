@@ -63,18 +63,23 @@ class InvoiceReceiptDialog extends StatelessWidget {
     final customsSum = inv.customCharges.fold<double>(0.0, (sum, c) => sum + c.amount);
     final otherChargesSum = inv.consultationCharge + inv.xrayCharge + inv.pharmacyCharge + customsSum;
 
-    if (inv.treatment.isNotEmpty) {
-      final nos = inv.treatmentNos > 0 ? inv.treatmentNos : 1;
-      double amt = inv.treatmentCharge > 0 ? inv.treatmentCharge : (inv.totalAmount - otherChargesSum);
-      if (amt <= 0 && inv.totalAmount > 0 && otherChargesSum == 0) amt = inv.totalAmount;
-      if (amt < 0) amt = 0.0;
-      final rate = inv.treatmentRate > 0 ? inv.treatmentRate : (nos > 0 ? (amt / nos) : amt);
+    // Determine primary dental treatment procedure & amount
+    final treatDesc = inv.treatment.trim().isNotEmpty
+        ? inv.treatment.trim()
+        : (inv.notes.trim().isNotEmpty ? inv.notes.trim() : 'Dental Treatment & Procedure');
+    final nos = inv.treatmentNos > 0 ? inv.treatmentNos : 1;
+    double tAmt = inv.treatmentCharge > 0 ? inv.treatmentCharge : (inv.totalAmount > otherChargesSum ? (inv.totalAmount - otherChargesSum) : 0.0);
+    if (tAmt <= 0 && inv.totalAmount > 0 && otherChargesSum == 0) tAmt = inv.totalAmount;
+    if (tAmt < 0) tAmt = 0.0;
+    final rate = inv.treatmentRate > 0 ? inv.treatmentRate : (nos > 0 ? (tAmt / nos) : tAmt);
+
+    if (tAmt > 0 || (inv.treatment.trim().isNotEmpty && inv.treatment.trim() != '-' && inv.treatment.trim().toLowerCase() != 'none')) {
       rows.add(InvoiceItemRow(
         index: rIdx++,
-        treatment: inv.treatment,
+        treatment: treatDesc,
         nos: nos,
         rate: rate,
-        amount: amt,
+        amount: tAmt,
       ));
     }
 
@@ -122,7 +127,7 @@ class InvoiceReceiptDialog extends StatelessWidget {
     final currentRowsTotal = rows.fold<double>(0.0, (s, r) => s + r.amount);
     if (inv.totalAmount > (currentRowsTotal + 0.01)) {
       final diff = inv.totalAmount - currentRowsTotal;
-      final treatIdx = rows.indexWhere((r) => !r.treatment.contains('Charge') && !r.treatment.contains('Fee'));
+      final treatIdx = rows.indexWhere((r) => !r.treatment.contains('Charge') && !r.treatment.contains('Fee') && !inv.customCharges.any((c) => c.title == r.treatment));
       if (treatIdx >= 0) {
         final old = rows[treatIdx];
         final newAmt = old.amount + diff;
@@ -135,12 +140,9 @@ class InvoiceReceiptDialog extends StatelessWidget {
           amount: newAmt,
         );
       } else {
-        final desc = inv.treatment.isNotEmpty
-            ? inv.treatment
-            : (inv.notes.isNotEmpty ? inv.notes : 'Dental Treatment & Procedure');
         rows.insert(0, InvoiceItemRow(
           index: 1,
-          treatment: desc,
+          treatment: treatDesc,
           nos: 1,
           rate: diff,
           amount: diff,

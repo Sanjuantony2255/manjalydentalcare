@@ -86,6 +86,7 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
     double consult = inv.consultationCharge;
     double xray = inv.xrayCharge;
     double pharm = inv.pharmacyCharge;
+    List<CustomChargeItem> customs = List.from(inv.customCharges);
 
     // 1. Try matching with patient visits by invoice ID
     final cleanInvId = InvoiceReceiptDialog.cleanBillNo(inv.id).toLowerCase();
@@ -97,7 +98,15 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
         break;
       }
     }
-    // Only fall back to date if patient has exactly one visit to prevent visit collisions
+    // Match by date if not matched yet
+    if (matchedVisit == null) {
+      for (final v in p.visits) {
+        if (v.date.isNotEmpty && (inv.date == v.date || inv.date.contains(v.date) || v.date.contains(inv.date))) {
+          matchedVisit = v;
+          break;
+        }
+      }
+    }
     if (matchedVisit == null && p.visits.length == 1) {
       matchedVisit = p.visits.first;
     }
@@ -118,6 +127,9 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       if (tCharge <= 0 && matchedVisit.treatmentCharge > 0) {
         tCharge = matchedVisit.treatmentCharge;
       }
+      if (customs.isEmpty && matchedVisit.customCharges.isNotEmpty) {
+        customs = List.from(matchedVisit.customCharges);
+      }
     }
 
     if (treatment.isEmpty) {
@@ -128,7 +140,7 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       }
     }
 
-    final customSum = inv.customCharges.fold<double>(0.0, (s, c) => s + c.amount);
+    final customSum = customs.fold<double>(0.0, (s, c) => s + c.amount);
     final otherKnown = consult + xray + pharm + customSum;
 
     if (tCharge <= 0 && inv.totalAmount > otherKnown) {
@@ -159,6 +171,7 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       consultationCharge: consult,
       xrayCharge: xray,
       pharmacyCharge: pharm,
+      customCharges: customs,
     );
   }
 
@@ -175,12 +188,26 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       final cleanInvId = InvoiceReceiptDialog.cleanBillNo(inv.id).toLowerCase();
       final idMatch = visitInvoiceIds.contains(cleanInvId);
       final invDigits = inv.phone.replaceAll(RegExp(r'\D'), '');
-      final phoneMatch = p.phone.isNotEmpty && (inv.phone == p.phone || (pDigits.length >= 8 && invDigits.contains(pDigits)));
+      final phoneMatch = p.phone.isNotEmpty && (inv.phone == p.phone || (pDigits.length >= 8 && invDigits.contains(pDigits)) || (invDigits.length >= 8 && pDigits.contains(invDigits)));
       final invName = inv.patientName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
       final nameMatch = pName.isNotEmpty && invName == pName;
       final opMatch = pOp.isNotEmpty && inv.opNumber.trim().toLowerCase() == pOp;
       return idMatch || phoneMatch || nameMatch || opMatch;
     }).map((inv) => _enrichInvoiceWithPatient(inv, p)).toList();
+
+    // Ensure every visit (registration and revisit) with billing is always represented in the invoice list
+    for (final v in p.visits) {
+      final cleanVId = InvoiceReceiptDialog.cleanBillNo(v.invoiceId).toLowerCase();
+      final alreadyInList = list.any((inv) {
+        final cInv = InvoiceReceiptDialog.cleanBillNo(inv.id).toLowerCase();
+        return (cleanVId.isNotEmpty && cleanVId != 'inv-sheet' && cInv == cleanVId) ||
+               (v.date.isNotEmpty && (inv.date == v.date || inv.date.contains(v.date) || v.date.contains(inv.date)));
+      });
+      if (!alreadyInList && (v.amount > 0 || (v.invoiceId.isNotEmpty && v.invoiceId != 'INV-SHEET'))) {
+        final synInv = _findOrCreateInvoiceForVisit(p, v);
+        list.add(synInv);
+      }
+    }
 
     // Sort descending by ID so latest invoice is first
     list.sort((a, b) => b.id.compareTo(a.id));
@@ -198,24 +225,30 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       if (found.isNotEmpty) return _enrichInvoiceWithPatient(found.first, p);
     }
 
-    if (p.visits.length == 1) {
-      final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-      final match = widget.storage.invoices.where((i) =>
-        i.patientName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ') == pName &&
-        (i.date == v.date || i.date.contains(v.date) || v.date.contains(i.date))
-      );
-      if (match.isNotEmpty) return _enrichInvoiceWithPatient(match.first, p);
-    }
+    final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    final pDigits = p.phone.replaceAll(RegExp(r'\D'), '');
+    final match = widget.storage.invoices.where((i) {
+      final iName = i.patientName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+      final iDigits = i.phone.replaceAll(RegExp(r'\D'), '');
+      final nameOrPhone = (pName.isNotEmpty && iName == pName) || (pDigits.length >= 8 && iDigits.contains(pDigits));
+      final dateMatch = v.date.isNotEmpty && (i.date == v.date || i.date.contains(v.date) || v.date.contains(i.date));
+      return nameOrPhone && dateMatch;
+    });
+    if (match.isNotEmpty) return _enrichInvoiceWithPatient(match.first, p);
 
     final treatmentText = v.notes.isNotEmpty ? v.notes : (p.diseaseHistory.isNotEmpty ? p.diseaseHistory : 'Dental Treatment & Procedure');
     final vConsult = v.consultationCharge;
     final vXray = v.xrayCharge;
     final vPharm = v.pharmacyCharge;
-    final other = vConsult + vXray + vPharm;
+    final vCustoms = v.customCharges;
+    final customSum = vCustoms.fold<double>(0.0, (s, c) => s + c.amount);
+    final other = vConsult + vXray + vPharm + customSum;
     final tCharge = v.treatmentCharge > 0 ? v.treatmentCharge : (v.amount > other ? (v.amount - other) : v.amount);
 
     return Invoice(
-      id: v.invoiceId.isNotEmpty ? v.invoiceId : 'INV-${v.date.replaceAll('/', '').replaceAll('-', '')}',
+      id: v.invoiceId.isNotEmpty && v.invoiceId != 'INV-SHEET'
+          ? v.invoiceId
+          : 'INV-${v.date.replaceAll('/', '').replaceAll('-', '')}-${(p.name.hashCode.abs() % 900) + 100}',
       patientName: p.name,
       phone: p.phone,
       doctor: v.doctor.isNotEmpty ? v.doctor : p.doctor,
@@ -227,6 +260,7 @@ class _SearchRecordsScreenState extends State<SearchRecordsScreen> {
       treatmentRate: tCharge,
       xrayCharge: vXray,
       pharmacyCharge: vPharm,
+      customCharges: vCustoms,
       totalAmount: v.amount,
       paymentMode: 'Cash',
       notes: v.notes,

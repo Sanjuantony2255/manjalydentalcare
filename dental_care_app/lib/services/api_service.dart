@@ -186,13 +186,11 @@ class ApiService {
     final List<Invoice> invoices = [];
     final List<InventoryItem> inventory = [];
 
-    // Helper checks to filter out any dummy test data
+    // Helper checks to filter out any test dummy data
     bool isDummyPatient(String name, String phone, String id) {
       final n = name.trim().toLowerCase();
       final p = phone.trim();
-      return n == 'rajesh kumar' || n == 'ramesh kumar' || n == 'test patient' ||
-          n == 'gokul' || n == 'manu' || n == 'anju' || n == 'albin' ||
-          n == 'deepak' || n == 'sanju' || n == 'sam' || n == 'neha' || n == 'saran' ||
+      return n == 'test patient' || n == 'rajesh kumar' || n == 'ramesh kumar' ||
           p == '9845012345' || p == '9876543210' || p == '9998887776' ||
           p == '133564456156' || id == 'PAT-133564456156' || id == 'PAT-1001' || id == 'PAT-9876543210';
     }
@@ -200,18 +198,14 @@ class ApiService {
     bool isDummyAppointment(String id, String name, String phone) {
       final n = name.trim().toLowerCase();
       final p = phone.trim();
-      return n == 'rajesh kumar' || n == 'ramesh kumar' || n == 'test patient' ||
-          n == 'gokul' || n == 'manu' || n == 'anju' || n == 'albin' ||
-          n == 'deepak' || n == 'sanju' || n == 'sam' || n == 'neha' || n == 'saran' ||
+      return n == 'test patient' || n == 'rajesh kumar' || n == 'ramesh kumar' ||
           p == '9845012345' || p == '9876543210' || p == '9998887776' ||
           id.contains('20261024-00') || id == 'APT-20261014-4821' || id == 'APT-20261013-2755';
     }
 
     bool isDummyInvoice(String id, String name) {
       final n = name.trim().toLowerCase();
-      return n == 'rajesh kumar' || n == 'ramesh kumar' || n == 'test patient' ||
-          n == 'gokul' || n == 'manu' || n == 'anju' || n == 'albin' ||
-          n == 'deepak' || n == 'sanju' || n == 'sam' || n == 'neha' || n == 'saran' ||
+      return n == 'test patient' || n == 'rajesh kumar' || n == 'ramesh kumar' ||
           id == 'INV-2026-001' || id == 'INV-20261013-3604' || id == 'INV-20261013-3503' ||
           id == 'INV-20261013-2386' || id == 'INV-20261014-9713';
     }
@@ -249,7 +243,8 @@ class ApiService {
                 if (v is Map) {
                   final vDate = v['date']?.toString() ?? v['timestamp']?.toString().split(' ').first ?? latestVisit;
                   final vDoc = v['doctor']?.toString() ?? v['doctorConsulted']?.toString() ?? doctor;
-                  final vNotes = v['notes']?.toString() ?? v['diseaseHistory']?.toString() ?? diseaseHistory;
+                  final vTreatDesc = v['treatment']?.toString() ?? v['notes']?.toString() ?? v['diseaseHistory']?.toString() ?? diseaseHistory;
+                  final vNotes = v['notes']?.toString() ?? vTreatDesc;
                   final vInvNo = v['invoiceId']?.toString() ?? v['invoiceNo']?.toString() ?? 'INV-SHEET';
                   final vTot = (v['amount'] as num?)?.toDouble() ?? (v['totalAmount'] as num?)?.toDouble() ?? 0.0;
                   final vConsult = (v['consultationCharge'] as num?)?.toDouble() ?? double.tryParse(v['consultationCharge']?.toString() ?? '') ?? 0.0;
@@ -257,19 +252,43 @@ class ApiService {
                   final vPharm = (v['pharmacyCharge'] as num?)?.toDouble() ?? double.tryParse(v['pharmacyCharge']?.toString() ?? '') ?? 0.0;
                   final vPayMode = v['paymentMode']?.toString() ?? 'Cash';
 
-                  final otherSum = vConsult + vXray + vPharm;
-                  final vTreatCharge = vTot > otherSum ? (vTot - otherSum) : 0.0;
+                  List<CustomChargeItem> vCustoms = [];
+                  final rawCustom = v['customCharges'];
+                  if (rawCustom is List) {
+                    for (final ci in rawCustom) {
+                      if (ci is Map) vCustoms.add(CustomChargeItem.fromJson(Map<String, dynamic>.from(ci)));
+                    }
+                  } else if (rawCustom is String && rawCustom.isNotEmpty) {
+                    try {
+                      final dec = jsonDecode(rawCustom);
+                      if (dec is List) {
+                        for (final ci in dec) {
+                          if (ci is Map) vCustoms.add(CustomChargeItem.fromJson(Map<String, dynamic>.from(ci)));
+                        }
+                      }
+                    } catch (_) {}
+                  }
+
+                  final customSum = vCustoms.fold<double>(0.0, (s, c) => s + c.amount);
+                  final otherSum = vConsult + vXray + vPharm + customSum;
+                  double vTreatCharge = (v['treatmentCharge'] as num?)?.toDouble() ?? double.tryParse(v['treatmentCharge']?.toString() ?? '') ?? 0.0;
+                  if (vTreatCharge <= 0 && vTot > otherSum) {
+                    vTreatCharge = vTot - otherSum;
+                  }
+                  final vTreatNos = (v['treatmentNos'] as num?)?.toInt() ?? int.tryParse(v['treatmentNos']?.toString() ?? '') ?? 1;
+                  final vTreatRate = (v['treatmentRate'] as num?)?.toDouble() ?? double.tryParse(v['treatmentRate']?.toString() ?? '') ?? (vTreatNos > 0 ? (vTreatCharge / vTreatNos) : vTreatCharge);
 
                   visits.add(VisitRecord(
                     date: vDate,
                     doctor: vDoc,
-                    notes: vNotes,
+                    notes: vTreatDesc.isNotEmpty ? vTreatDesc : vNotes,
                     invoiceId: vInvNo,
                     amount: vTot,
                     consultationCharge: vConsult,
                     xrayCharge: vXray,
                     pharmacyCharge: vPharm,
                     treatmentCharge: vTreatCharge,
+                    customCharges: vCustoms,
                   ));
 
                   if (vInvNo.isNotEmpty && !vInvNo.toLowerCase().contains('sheet') && !isDummyInvoice(vInvNo, name)) {
@@ -285,9 +304,10 @@ class ApiService {
                       xrayCharge: vXray,
                       pharmacyCharge: vPharm,
                       treatmentCharge: vTreatCharge,
-                      treatment: vNotes,
-                      treatmentNos: 1,
-                      treatmentRate: vTreatCharge,
+                      treatment: vTreatDesc,
+                      treatmentNos: vTreatNos > 0 ? vTreatNos : 1,
+                      treatmentRate: vTreatRate,
+                      customCharges: vCustoms,
                       totalAmount: vTot,
                       paymentMode: vPayMode,
                       notes: vNotes,
@@ -297,7 +317,12 @@ class ApiService {
                       invoices[exIdx] = invoices[exIdx].copyWith(
                         treatment: invoices[exIdx].treatment.isNotEmpty ? invoices[exIdx].treatment : visitInv.treatment,
                         treatmentCharge: invoices[exIdx].treatmentCharge > 0 ? invoices[exIdx].treatmentCharge : visitInv.treatmentCharge,
+                        treatmentNos: invoices[exIdx].treatmentNos > 0 ? invoices[exIdx].treatmentNos : visitInv.treatmentNos,
+                        treatmentRate: invoices[exIdx].treatmentRate > 0 ? invoices[exIdx].treatmentRate : visitInv.treatmentRate,
                         consultationCharge: invoices[exIdx].consultationCharge > 0 ? invoices[exIdx].consultationCharge : visitInv.consultationCharge,
+                        xrayCharge: invoices[exIdx].xrayCharge > 0 ? invoices[exIdx].xrayCharge : visitInv.xrayCharge,
+                        pharmacyCharge: invoices[exIdx].pharmacyCharge > 0 ? invoices[exIdx].pharmacyCharge : visitInv.pharmacyCharge,
+                        customCharges: invoices[exIdx].customCharges.isNotEmpty ? invoices[exIdx].customCharges : visitInv.customCharges,
                         opNumber: invoices[exIdx].opNumber.isNotEmpty ? invoices[exIdx].opNumber : visitInv.opNumber,
                       );
                     } else {
@@ -355,10 +380,16 @@ class ApiService {
             final colEmail = _findCol(headers, ['email', 'mail'], 3);
             final colDob = _findCol(headers, ['dob', 'birth', 'age'], 4);
             final colGender = _findCol(headers, ['gender', 'sex'], 5);
-            final colDoctor = _findCol(headers, ['doctor', 'attending', 'consulted'], 6);
+            final colDoctor = _findCol(headers, ['doctor', 'attending', 'consulted'], 6, excludes: ['charge', 'fee', 'amount']);
             final colMedHist = _findCol(headers, ['medical'], 7);
             final colAllergies = _findCol(headers, ['allerg', 'drug'], 8);
-            final colDisease = _findCol(headers, ['disease', 'procedure', 'complaint'], 9);
+            final colDisease = _findCol(headers, ['disease', 'complaint'], 9);
+            final colTreatment = _findCol(headers, ['treatment name', 'treatment procedure', 'treatment'], -1, excludes: ['charge', 'rate', 'nos', 'cost', 'fee', 'amount']);
+            final colTreatmentCharge = _findCol(headers, ['treatment charge', 'procedure charge', 'treatment fee'], -1);
+            final colConsult = _findCol(headers, ['consultation charge', 'consult charge', 'consultation fee', 'consult fee', 'consultation', 'consult'], 10, excludes: ['doctor', 'dentist']);
+            final colXray = _findCol(headers, ['xray', 'x-ray'], 11);
+            final colPharm = _findCol(headers, ['pharm', 'medicin'], 12);
+            final colCustom = _findCol(headers, ['custom charges', 'custom', 'extra'], -1);
             final colTotal = _findCol(headers, ['total', 'amount'], 13);
             final colInv = _findCol(headers, ['invoice'], 16);
 
@@ -383,8 +414,38 @@ class ApiService {
               final medHistory = _safeCell(r, colMedHist).isNotEmpty ? _safeCell(r, colMedHist) : 'None';
               final drugAllergies = _safeCell(r, colAllergies).isNotEmpty ? _safeCell(r, colAllergies) : 'None';
               final disease = _safeCell(r, colDisease);
+              final treatVal = colTreatment >= 0 ? _safeCell(r, colTreatment) : disease;
+              final treatNotes = treatVal.isNotEmpty ? treatVal : (disease.isNotEmpty ? disease : 'Clinical Dental Checkup');
+
+              final cCharge = colConsult >= 0 ? (double.tryParse(_safeCell(r, colConsult).replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0) : 0.0;
+              final xCharge = colXray >= 0 ? (double.tryParse(_safeCell(r, colXray).replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0) : 0.0;
+              final pCharge = colPharm >= 0 ? (double.tryParse(_safeCell(r, colPharm).replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0) : 0.0;
+              double tCharge = colTreatmentCharge >= 0 ? (double.tryParse(_safeCell(r, colTreatmentCharge).replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0) : 0.0;
+
+              List<CustomChargeItem> customs = [];
+              if (colCustom >= 0) {
+                final rawCust = _safeCell(r, colCustom);
+                if (rawCust.isNotEmpty) {
+                  try {
+                    final dec = jsonDecode(rawCust);
+                    if (dec is List) {
+                      for (final it in dec) {
+                        if (it is Map) customs.add(CustomChargeItem.fromJson(Map<String, dynamic>.from(it)));
+                      }
+                    }
+                  } catch (_) {}
+                }
+              }
+
+              final custSum = customs.fold<double>(0.0, (s, c) => s + c.amount);
               final rawTotal = _safeCell(r, colTotal).replaceAll(RegExp(r'[^0-9.]'), '');
-              final totalAmt = double.tryParse(rawTotal) ?? 0.0;
+              final known = cCharge + xCharge + pCharge + custSum;
+              double totalAmt = double.tryParse(rawTotal) ?? (known + tCharge);
+
+              if (tCharge <= 0 && totalAmt > known) {
+                tCharge = totalAmt - known;
+              }
+
               final rawInv = _safeCell(r, colInv);
               final invNo = rawInv.isNotEmpty ? rawInv : 'INV-SHEET';
 
@@ -392,9 +453,14 @@ class ApiService {
               final visit = VisitRecord(
                 date: visitDate.isNotEmpty ? visitDate : '2026-10-14',
                 doctor: doctor,
-                notes: disease.isNotEmpty ? disease : 'Clinical Dental Checkup',
+                notes: treatNotes,
                 invoiceId: invNo,
                 amount: totalAmt,
+                consultationCharge: cCharge,
+                xrayCharge: xCharge,
+                pharmacyCharge: pCharge,
+                treatmentCharge: tCharge,
+                customCharges: customs,
               );
 
               final effectiveOp = rawOp.isNotEmpty ? rawOp : 'OP-${(name.hashCode.abs() % 900) + 100}';
@@ -569,8 +635,8 @@ class ApiService {
           final colDate = _findCol(headers, ['date', 'time', 'timestamp'], -1);
           final colName = _findCol(headers, ['patient name', 'full name', 'patient', 'name'], -1);
           final colPhone = _findCol(headers, ['phone', 'mobile', 'contact', 'cell'], -1);
-          final colDoctor = _findCol(headers, ['doctor', 'dentist', 'attending', 'consulted'], -1);
-          final colTreatment = _findCol(headers, ['treatment name', 'treatment procedure', 'treatment'], -1);
+          final colDoctor = _findCol(headers, ['doctor', 'dentist', 'attending', 'consulted'], -1, excludes: ['charge', 'fee', 'amount']);
+          final colTreatment = _findCol(headers, ['treatment name', 'treatment procedure', 'treatment'], -1, excludes: ['charge', 'rate', 'nos', 'cost', 'fee', 'amount']);
           final colTreatmentCharge = _findCol(headers, ['treatment charge', 'procedure charge', 'treatment fee'], -1);
           final colTreatmentNos = _findCol(headers, ['treatment nos', 'nos', 'qty', 'quantity'], -1);
           final colTreatmentRate = _findCol(headers, ['treatment rate', 'rate', 'unit price'], -1);

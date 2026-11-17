@@ -267,9 +267,19 @@ class StorageService extends ChangeNotifier {
               break;
             }
           }
+          if (matchedVisit == null) {
+            for (final v in pat.visits) {
+              if (v.date.isNotEmpty && (inv.date == v.date || inv.date.contains(v.date) || v.date.contains(inv.date))) {
+                matchedVisit = v;
+                break;
+              }
+            }
+          }
           if (matchedVisit == null && pat.visits.length == 1) {
             matchedVisit = pat.visits.first;
           }
+
+          List<CustomChargeItem> updatedCustoms = List.from(inv.customCharges);
 
           if (matchedVisit != null) {
             if (newConsult <= 0 && matchedVisit.consultationCharge > 0) {
@@ -292,6 +302,10 @@ class StorageService extends ChangeNotifier {
               newTreatmentCharge = matchedVisit.treatmentCharge;
               updated = true;
             }
+            if (updatedCustoms.isEmpty && matchedVisit.customCharges.isNotEmpty) {
+              updatedCustoms = List.from(matchedVisit.customCharges);
+              updated = true;
+            }
           }
 
           if (newTreatment.isEmpty) {
@@ -304,7 +318,7 @@ class StorageService extends ChangeNotifier {
             }
           }
 
-          final known = newConsult + newXray + newPharm + inv.customCharges.fold<double>(0.0, (s, c) => s + c.amount);
+          final known = newConsult + newXray + newPharm + updatedCustoms.fold<double>(0.0, (s, c) => s + c.amount);
           if (newTreatmentCharge <= 0 && inv.totalAmount > known) {
             newTreatmentCharge = inv.totalAmount - known;
             updated = true;
@@ -327,6 +341,7 @@ class StorageService extends ChangeNotifier {
               consultationCharge: newConsult,
               xrayCharge: newXray,
               pharmacyCharge: newPharm,
+              customCharges: updatedCustoms,
             );
           }
         }
@@ -381,6 +396,7 @@ class StorageService extends ChangeNotifier {
       final effectiveOp = existing.opNumber.isNotEmpty
           ? existing.opNumber
           : (patient.opNumber.isNotEmpty ? patient.opNumber : 'OP-${existing.id}');
+      final addedBilled = patient.totalBilled > 0 ? patient.totalBilled : patient.visits.fold<double>(0.0, (s, v) => s + v.amount);
       _patients[idx] = Patient(
         id: existing.id.isNotEmpty ? existing.id : patient.id,
         opNumber: effectiveOp,
@@ -396,8 +412,8 @@ class StorageService extends ChangeNotifier {
         drugAllergies: patient.drugAllergies.isNotEmpty ? patient.drugAllergies : existing.drugAllergies,
         diseaseHistory: patient.diseaseHistory.isNotEmpty ? patient.diseaseHistory : existing.diseaseHistory,
         registrationDate: patient.registrationDate.isNotEmpty ? patient.registrationDate : existing.registrationDate,
-        totalVisits: existing.totalVisits + 1,
-        totalBilled: existing.totalBilled + patient.totalBilled,
+        totalVisits: existing.totalVisits + (patient.visits.isNotEmpty ? patient.visits.length : 1),
+        totalBilled: existing.totalBilled + addedBilled,
         visits: [...existing.visits, ...patient.visits],
       );
     } else {
@@ -476,7 +492,23 @@ class StorageService extends ChangeNotifier {
           notes: invoice.notes.isNotEmpty ? invoice.notes : (invoice.treatment.isNotEmpty ? invoice.treatment : 'Clinical consultation & billing'),
           invoiceId: invoice.id,
           amount: invoice.totalAmount,
+          consultationCharge: invoice.consultationCharge,
+          xrayCharge: invoice.xrayCharge,
+          pharmacyCharge: invoice.pharmacyCharge,
+          treatmentCharge: invoice.treatmentCharge,
+          customCharges: invoice.customCharges,
         ));
+      } else {
+        final ev = _patients[pIdx].visits[existingVisitIdx];
+        _patients[pIdx].visits[existingVisitIdx] = ev.copyWith(
+          notes: invoice.treatment.isNotEmpty ? invoice.treatment : (invoice.notes.isNotEmpty ? invoice.notes : ev.notes),
+          consultationCharge: invoice.consultationCharge > 0 ? invoice.consultationCharge : ev.consultationCharge,
+          xrayCharge: invoice.xrayCharge > 0 ? invoice.xrayCharge : ev.xrayCharge,
+          pharmacyCharge: invoice.pharmacyCharge > 0 ? invoice.pharmacyCharge : ev.pharmacyCharge,
+          treatmentCharge: invoice.treatmentCharge > 0 ? invoice.treatmentCharge : ev.treatmentCharge,
+          customCharges: invoice.customCharges.isNotEmpty ? invoice.customCharges : ev.customCharges,
+          amount: invoice.totalAmount > 0 ? invoice.totalAmount : ev.amount,
+        );
       }
     }
 

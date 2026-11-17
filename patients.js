@@ -276,7 +276,68 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             for (const p of Object.values(mergedMap)) {
+                if (!Array.isArray(p.invoices)) p.invoices = [];
+                // Harvest any visits that have billing into invoices so they always have a Show Invoice button
+                if (Array.isArray(p.visits)) {
+                    p.visits.forEach(v => {
+                        const tot = parseFloat(v.totalAmount) || 0;
+                        if (tot > 0 || (v.invoiceNo && v.invoiceNo !== 'INV-SHEET')) {
+                            const vClean = (v.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+                            const alreadyInInvoices = p.invoices.some(ei => {
+                                const eiClean = (ei.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+                                return (vClean && eiClean && (eiClean === vClean || eiClean.includes(vClean) || vClean.includes(eiClean)));
+                            });
+                            if (!alreadyInInvoices) {
+                                p.invoices.push({
+                                    invoiceNo: v.invoiceNo || ('INV-' + (v.timestamp ? v.timestamp.replace(/\D/g, '').slice(0, 8) : 'RECORD')),
+                                    timestamp: v.timestamp || '',
+                                    date: (v.timestamp || '').split(' ')[0] || '',
+                                    opNumber: v.opNumber || p.opNumber || '',
+                                    fullName: p.fullName || '',
+                                    patientName: p.fullName || '',
+                                    phone: p.phone || '',
+                                    doctorConsulted: v.doctorConsulted || p.doctorConsulted || 'Attending Doctor',
+                                    treatment: v.treatment || v.diseaseHistory || p.diseaseHistory || '',
+                                    treatmentCharge: v.treatmentCharge || 0,
+                                    treatmentNos: v.treatmentNos || 1,
+                                    treatmentRate: v.treatmentRate || 0,
+                                    consultationCharge: v.consultationCharge || 0,
+                                    xrayCharge: v.xrayCharge || 0,
+                                    pharmacyCharge: v.pharmacyCharge || 0,
+                                    customCharges: v.customCharges || [],
+                                    totalAmount: v.totalAmount || tot,
+                                    paymentMode: v.paymentMode || 'Cash',
+                                    driveFileUrl: v.driveFileUrl || ''
+                                });
+                            }
+                        }
+                    });
+                }
                 if (Array.isArray(p.invoices)) {
+                    p.invoices.forEach(inv => {
+                        const cAmt = parseFloat(inv.consultationCharge) || 0;
+                        const xAmt = parseFloat(inv.xrayCharge) || 0;
+                        const pAmt = parseFloat(inv.pharmacyCharge) || 0;
+                        const customs = Array.isArray(inv.customCharges) ? inv.customCharges : [];
+                        const customSum = customs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+                        const other = cAmt + xAmt + pAmt + customSum;
+                        let tAmt = parseFloat(inv.treatmentCharge) || 0;
+                        const tot = parseFloat(inv.totalAmount) || (other + tAmt);
+                        if (tAmt <= 0 && tot > other) {
+                            tAmt = tot - other;
+                            inv.treatmentCharge = tAmt;
+                        } else if (tAmt > 0 && tot > (tAmt + other + 0.01)) {
+                            tAmt = tot - other;
+                            inv.treatmentCharge = tAmt;
+                        }
+                        const nos = parseInt(inv.treatmentNos || inv.nos, 10) || 1;
+                        if (!inv.treatmentRate || parseFloat(inv.treatmentRate) <= 0) {
+                            inv.treatmentRate = nos > 0 ? (tAmt / nos) : tAmt;
+                        }
+                        if (!inv.treatment || inv.treatment.trim() === '' || inv.treatment === '-') {
+                            inv.treatment = p.diseaseHistory || 'Dental Treatment & Procedure';
+                        }
+                    });
                     p.invoices.sort((a, b) => (b.invoiceNo || '').localeCompare(a.invoiceNo || ''));
                 }
                 if (Array.isArray(p.visits)) {
