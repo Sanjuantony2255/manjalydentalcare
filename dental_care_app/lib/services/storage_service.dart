@@ -270,6 +270,16 @@ class StorageService extends ChangeNotifier {
           if (matchedVisit == null) {
             for (final v in pat.visits) {
               if (v.date.isNotEmpty && (inv.date == v.date || inv.date.contains(v.date) || v.date.contains(inv.date))) {
+                if ((v.amount - inv.totalAmount).abs() < 1.0) {
+                  matchedVisit = v;
+                  break;
+                }
+              }
+            }
+          }
+          if (matchedVisit == null) {
+            for (final v in pat.visits) {
+              if ((v.amount - inv.totalAmount).abs() < 1.0) {
                 matchedVisit = v;
                 break;
               }

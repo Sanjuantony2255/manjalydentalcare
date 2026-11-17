@@ -1768,6 +1768,22 @@ function handleSearchPatient(ss, params) {
               }
             }
 
+            var numTot = parseFloat(rowTotal) || 0;
+            var numConsult = parseFloat(rowConsult) || 0;
+            var numXray = parseFloat(rowXray) || 0;
+            var numPharm = parseFloat(rowPharm) || 0;
+            var customSum = 0;
+            for (var csIdx = 0; csIdx < parsedCustom.length; csIdx++) {
+              customSum += (parseFloat(parsedCustom[csIdx].amount) || 0);
+            }
+            var otherCharges = numConsult + numXray + numPharm + customSum;
+            var numTreatmentCharge = parseFloat(rowTreatmentCharge) || 0;
+            if (numTreatmentCharge <= 0 && numTot > otherCharges) {
+              numTreatmentCharge = numTot - otherCharges;
+            }
+            var numTreatmentNos = parseInt(rowTreatmentNos, 10) || 1;
+            var numTreatmentRate = parseFloat(rowTreatmentRate) || (numTreatmentNos > 0 ? (numTreatmentCharge / numTreatmentNos) : numTreatmentCharge);
+
             invoices.push({
               invoiceNo: iNoVal,
               opNumber: rowOp,
@@ -1778,15 +1794,15 @@ function handleSearchPatient(ss, params) {
               phone: rowPhone,
               address: rowAddress,
               doctorConsulted: rowDoc || 'Attending Doctor',
-              treatment: rowTreatment,
-              treatmentCharge: rowTreatmentCharge,
-              treatmentNos: rowTreatmentNos || '1',
-              treatmentRate: rowTreatmentRate,
-              consultationCharge: rowConsult,
-              xrayCharge: rowXray,
-              pharmacyCharge: rowPharm,
+              treatment: rowTreatment || 'Dental Treatment & Procedure',
+              treatmentCharge: numTreatmentCharge,
+              treatmentNos: numTreatmentNos,
+              treatmentRate: numTreatmentRate,
+              consultationCharge: numConsult,
+              xrayCharge: numXray,
+              pharmacyCharge: numPharm,
               customCharges: parsedCustom,
-              totalAmount: rowTotal,
+              totalAmount: numTot,
               paymentMode: rowPayMode || 'Cash',
               driveFileUrl: rowDrive
             });
@@ -2189,6 +2205,21 @@ function handleGetPatients(ss) {
           var invCleanName = iName.toLowerCase().replace(/\s+/g, ' ').trim();
           var invKey = invCleanName ? (invCleanName + (iDigits ? ('_' + iDigits) : '')) : (iDigits ? ('phone_' + iDigits) : '');
 
+          var cCharge = parseFloat(iConsult) || 0;
+          var xCharge = parseFloat(iXray) || 0;
+          var pCharge = parseFloat(iPharm) || 0;
+          var customSum = 0;
+          for (var cIdx = 0; cIdx < parsedCustom.length; cIdx++) {
+            customSum += (parseFloat(parsedCustom[cIdx].amount) || 0);
+          }
+          var otherCharges = cCharge + xCharge + pCharge + customSum;
+          var tCharge = parseFloat(iTreatmentCharge) || 0;
+          if (tCharge <= 0 && iTot > otherCharges) {
+            tCharge = iTot - otherCharges;
+          }
+          var tNos = parseInt(iTreatmentNos, 10) || 1;
+          var tRate = parseFloat(iTreatmentRate) || (tNos > 0 ? (tCharge / tNos) : tCharge);
+
           var invObj = {
             invoiceNo: iNo,
             opNumber: iOp,
@@ -2199,13 +2230,13 @@ function handleGetPatients(ss) {
             phone: iPhone,
             address: iAddress,
             doctorConsulted: iDoc || 'Attending Doctor',
-            treatment: iTreatment,
-            treatmentCharge: iTreatmentCharge,
-            treatmentNos: iTreatmentNos || '1',
-            treatmentRate: iTreatmentRate,
-            consultationCharge: iConsult,
-            xrayCharge: iXray,
-            pharmacyCharge: iPharm,
+            treatment: iTreatment || 'Dental Treatment & Procedure',
+            treatmentCharge: tCharge,
+            treatmentNos: tNos,
+            treatmentRate: tRate,
+            consultationCharge: cCharge,
+            xrayCharge: xCharge,
+            pharmacyCharge: pCharge,
             customCharges: parsedCustom,
             totalAmount: iTot,
             paymentMode: iPayMode || 'Cash',
@@ -2215,7 +2246,7 @@ function handleGetPatients(ss) {
           if (invKey && patientsMap[invKey]) {
             if (!invObj.opNumber && patientsMap[invKey].opNumber) invObj.opNumber = patientsMap[invKey].opNumber;
             if (!invObj.address && patientsMap[invKey].address) invObj.address = patientsMap[invKey].address;
-            if (!invObj.treatment && (patientsMap[invKey].diseaseHistory || patientsMap[invKey].medicalHistory)) {
+            if ((!invObj.treatment || invObj.treatment === 'Dental Treatment & Procedure') && (patientsMap[invKey].diseaseHistory || patientsMap[invKey].medicalHistory)) {
               invObj.treatment = patientsMap[invKey].diseaseHistory || patientsMap[invKey].medicalHistory;
             }
             patientsMap[invKey].invoices.push(invObj);
@@ -2224,7 +2255,7 @@ function handleGetPatients(ss) {
               if ((iDigits && extractDigits(patientsMap[pK].phone) === iDigits) || (invCleanName && patientsMap[pK].fullName.toLowerCase().trim() === invCleanName)) {
                 if (!invObj.opNumber && patientsMap[pK].opNumber) invObj.opNumber = patientsMap[pK].opNumber;
                 if (!invObj.address && patientsMap[pK].address) invObj.address = patientsMap[pK].address;
-                if (!invObj.treatment && (patientsMap[pK].diseaseHistory || patientsMap[pK].medicalHistory)) {
+                if ((!invObj.treatment || invObj.treatment === 'Dental Treatment & Procedure') && (patientsMap[pK].diseaseHistory || patientsMap[pK].medicalHistory)) {
                   invObj.treatment = patientsMap[pK].diseaseHistory || patientsMap[pK].medicalHistory;
                 }
                 patientsMap[pK].invoices.push(invObj);
@@ -2237,6 +2268,68 @@ function handleGetPatients(ss) {
     }
   } catch (invErr) {
     Logger.log("Invoices read error: " + invErr.toString());
+  }
+
+  // Ensure every patient profile's visits with billing (including all revisits) are in the invoices array
+  for (var pKey in patientsMap) {
+    var pat = patientsMap[pKey];
+    if (pat.visits && pat.visits.length > 0) {
+      if (!Array.isArray(pat.invoices)) pat.invoices = [];
+      for (var vi = 0; vi < pat.visits.length; vi++) {
+        var v = pat.visits[vi];
+        var vTot = parseFloat(v.totalAmount) || 0;
+        if (vTot > 0 || (v.invoiceNo && v.invoiceNo !== 'INV-SHEET')) {
+          var vClean = (v.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+          var alreadyPresent = pat.invoices.some(function(ei) {
+            var eiClean = (ei.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+            return vClean && eiClean && (eiClean === vClean || eiClean.indexOf(vClean) !== -1 || vClean.indexOf(eiClean) !== -1);
+          });
+          if (!alreadyPresent) {
+            var vConsult = parseFloat(v.consultationCharge) || 0;
+            var vXray = parseFloat(v.xrayCharge) || 0;
+            var vPharm = parseFloat(v.pharmacyCharge) || 0;
+            var vCustoms = Array.isArray(v.customCharges) ? v.customCharges : [];
+            var vCustSum = 0;
+            for (var vc = 0; vc < vCustoms.length; vc++) {
+              vCustSum += (parseFloat(vCustoms[vc].amount) || 0);
+            }
+            var vOther = vConsult + vXray + vPharm + vCustSum;
+            var vTreatCharge = parseFloat(v.treatmentCharge) || 0;
+            if (vTreatCharge <= 0 && vTot > vOther) {
+              vTreatCharge = vTot - vOther;
+            }
+            var vTreatNos = parseInt(v.treatmentNos || v.nos, 10) || 1;
+            var vTreatRate = parseFloat(v.treatmentRate) || (vTreatNos > 0 ? (vTreatCharge / vTreatNos) : vTreatCharge);
+
+            pat.invoices.push({
+              invoiceNo: v.invoiceNo || ('INV-' + (v.timestamp ? v.timestamp.replace(/\D/g, '').slice(0, 8) : 'RECORD')),
+              opNumber: v.opNumber || pat.opNumber || '',
+              timestamp: v.timestamp || '',
+              date: (v.timestamp || '').split(' ')[0] || '',
+              patientName: pat.fullName,
+              fullName: pat.fullName,
+              phone: pat.phone,
+              address: pat.address,
+              doctorConsulted: v.doctorConsulted || pat.doctorConsulted || 'Attending Doctor',
+              treatment: v.treatment || v.diseaseHistory || pat.diseaseHistory || 'Dental Treatment & Procedure',
+              treatmentCharge: vTreatCharge,
+              treatmentNos: vTreatNos,
+              treatmentRate: vTreatRate,
+              consultationCharge: vConsult,
+              xrayCharge: vXray,
+              pharmacyCharge: vPharm,
+              customCharges: vCustoms,
+              totalAmount: vTot,
+              paymentMode: v.paymentMode || 'Cash',
+              driveFileUrl: v.driveFileUrl || ''
+            });
+          }
+        }
+      }
+      pat.invoices.sort(function(a, b) {
+        return (b.invoiceNo || '').localeCompare(a.invoiceNo || '');
+      });
+    }
   }
 
   var list = [];

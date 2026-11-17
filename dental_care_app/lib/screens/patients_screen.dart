@@ -81,15 +81,26 @@ class _PatientsScreenState extends State<PatientsScreen> {
     VisitRecord? matchedVisit;
     for (final v in p.visits) {
       final cId = InvoiceReceiptDialog.cleanBillNo(v.invoiceId).toLowerCase();
-      if (cId.isNotEmpty && (cId == cleanInvId || cleanInvId.contains(cId) || cId.contains(cleanInvId))) {
+      if (cId.isNotEmpty && cleanInvId.isNotEmpty && (cId == cleanInvId || cleanInvId.contains(cId) || cId.contains(cleanInvId))) {
         matchedVisit = v;
         break;
       }
     }
-    // Match by date if not matched yet
+    // Match by date AND amount if not matched by ID yet (handles same-day revisits accurately)
     if (matchedVisit == null) {
       for (final v in p.visits) {
         if (v.date.isNotEmpty && (inv.date == v.date || inv.date.contains(v.date) || v.date.contains(inv.date))) {
+          if ((v.amount - inv.totalAmount).abs() < 1.0) {
+            matchedVisit = v;
+            break;
+          }
+        }
+      }
+    }
+    // Fallback match by amount
+    if (matchedVisit == null) {
+      for (final v in p.visits) {
+        if ((v.amount - inv.totalAmount).abs() < 1.0) {
           matchedVisit = v;
           break;
         }
@@ -188,8 +199,12 @@ class _PatientsScreenState extends State<PatientsScreen> {
       final cleanVId = InvoiceReceiptDialog.cleanBillNo(v.invoiceId).toLowerCase();
       final alreadyInList = list.any((inv) {
         final cInv = InvoiceReceiptDialog.cleanBillNo(inv.id).toLowerCase();
-        return (cleanVId.isNotEmpty && cleanVId != 'inv-sheet' && cInv == cleanVId) ||
-               (v.date.isNotEmpty && (inv.date == v.date || inv.date.contains(v.date) || v.date.contains(inv.date)));
+        if (cleanVId.isNotEmpty && cleanVId != 'inv-sheet' && cInv.isNotEmpty) {
+          return cInv == cleanVId || cInv.contains(cleanVId) || cleanVId.contains(cInv);
+        }
+        final dateSame = v.date.isNotEmpty && (inv.date == v.date || inv.date.contains(v.date) || v.date.contains(inv.date));
+        final amtSame = (inv.totalAmount - v.amount).abs() < 1.0;
+        return dateSame && amtSame;
       });
       if (!alreadyInList && (v.amount > 0 || (v.invoiceId.isNotEmpty && v.invoiceId != 'INV-SHEET'))) {
         final synInv = _findOrCreateInvoiceForVisit(p, v);

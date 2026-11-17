@@ -137,6 +137,129 @@ document.addEventListener('DOMContentLoaded', () => {
         return s.replace(/[^0-9]/g, '');
     }
 
+    function enrichSinglePatient(p) {
+        if (!p) return p;
+        if (!Array.isArray(p.invoices)) p.invoices = [];
+        if (!Array.isArray(p.visits)) p.visits = [];
+
+        // 1. Ensure every visit with billing is represented in invoices
+        p.visits.forEach(v => {
+            const tot = parseFloat(v.totalAmount) || 0;
+            if (tot > 0 || (v.invoiceNo && v.invoiceNo !== 'INV-SHEET')) {
+                const vClean = (v.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+                const alreadyInInvoices = p.invoices.some(ei => {
+                    const eiClean = (ei.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+                    return (vClean && eiClean && (eiClean === vClean || eiClean.includes(vClean) || vClean.includes(eiClean)));
+                });
+                if (!alreadyInInvoices) {
+                    const cVal = parseFloat(v.consultationCharge) || 0;
+                    const xVal = parseFloat(v.xrayCharge) || 0;
+                    const pVal = parseFloat(v.pharmacyCharge) || 0;
+                    const customs = Array.isArray(v.customCharges) ? v.customCharges : [];
+                    const cSum = customs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+                    const otherSum = cVal + xVal + pVal + cSum;
+                    let tVal = parseFloat(v.treatmentCharge) || 0;
+                    if (tVal <= 0 && tot > otherSum) {
+                        tVal = tot - otherSum;
+                    }
+                    const nos = parseInt(v.treatmentNos || v.nos, 10) || 1;
+                    const rate = parseFloat(v.treatmentRate) || (nos > 0 ? (tVal / nos) : tVal);
+
+                    p.invoices.push({
+                        invoiceNo: v.invoiceNo || ('INV-' + (v.timestamp ? v.timestamp.replace(/\D/g, '').slice(0, 8) : 'RECORD')),
+                        timestamp: v.timestamp || '',
+                        date: (v.timestamp || '').split(' ')[0] || '',
+                        opNumber: v.opNumber || p.opNumber || '',
+                        fullName: p.fullName || '',
+                        patientName: p.fullName || '',
+                        phone: p.phone || '',
+                        doctorConsulted: v.doctorConsulted || p.doctorConsulted || 'Attending Doctor',
+                        treatment: v.treatment || v.diseaseHistory || p.diseaseHistory || 'Dental Treatment & Procedure',
+                        treatmentCharge: tVal,
+                        treatmentNos: nos,
+                        treatmentRate: rate,
+                        consultationCharge: cVal,
+                        xrayCharge: xVal,
+                        pharmacyCharge: pVal,
+                        customCharges: customs,
+                        totalAmount: tot,
+                        paymentMode: v.paymentMode || 'Cash',
+                        driveFileUrl: v.driveFileUrl || ''
+                    });
+                }
+            }
+        });
+
+        // 2. Reconcile all invoices with matching visits and totalAmount
+        p.invoices.forEach(inv => {
+            const invClean = (inv.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+            let matchedVisit = p.visits.find(v => {
+                const vClean = (v.invoiceNo || '').toLowerCase().trim().replace(/^inv-/, '');
+                return invClean && vClean && (vClean === invClean || vClean.includes(invClean) || invClean.includes(vClean));
+            });
+            if (!matchedVisit) {
+                const invDate = (inv.date || inv.timestamp || '').split(' ')[0];
+                const invTot = parseFloat(inv.totalAmount) || 0;
+                matchedVisit = p.visits.find(v => {
+                    const vDate = (v.timestamp || v.date || '').split(' ')[0];
+                    const vTot = parseFloat(v.totalAmount) || 0;
+                    return invDate && vDate && (invDate === vDate) && Math.abs(vTot - invTot) < 1.0;
+                });
+            }
+
+            if (matchedVisit) {
+                if ((!inv.consultationCharge || parseFloat(inv.consultationCharge) <= 0) && parseFloat(matchedVisit.consultationCharge) > 0) {
+                    inv.consultationCharge = parseFloat(matchedVisit.consultationCharge);
+                }
+                if ((!inv.xrayCharge || parseFloat(inv.xrayCharge) <= 0) && parseFloat(matchedVisit.xrayCharge) > 0) {
+                    inv.xrayCharge = parseFloat(matchedVisit.xrayCharge);
+                }
+                if ((!inv.pharmacyCharge || parseFloat(inv.pharmacyCharge) <= 0) && parseFloat(matchedVisit.pharmacyCharge) > 0) {
+                    inv.pharmacyCharge = parseFloat(matchedVisit.pharmacyCharge);
+                }
+                if ((!inv.treatment || inv.treatment.trim() === '' || inv.treatment === '-') && (matchedVisit.treatment || matchedVisit.diseaseHistory)) {
+                    inv.treatment = matchedVisit.treatment || matchedVisit.diseaseHistory;
+                }
+                if ((!inv.customCharges || inv.customCharges.length === 0) && Array.isArray(matchedVisit.customCharges) && matchedVisit.customCharges.length > 0) {
+                    inv.customCharges = matchedVisit.customCharges;
+                }
+            }
+
+            const cAmt = parseFloat(inv.consultationCharge) || 0;
+            const xAmt = parseFloat(inv.xrayCharge) || 0;
+            const pAmt = parseFloat(inv.pharmacyCharge) || 0;
+            const customs = Array.isArray(inv.customCharges) ? inv.customCharges : [];
+            const customSum = customs.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+            const other = cAmt + xAmt + pAmt + customSum;
+            let tAmt = parseFloat(inv.treatmentCharge) || 0;
+            const tot = parseFloat(inv.totalAmount) || (other + tAmt);
+
+            if (tAmt <= 0 && tot > other) {
+                tAmt = tot - other;
+                inv.treatmentCharge = tAmt;
+            } else if (tAmt > 0 && tot > (tAmt + other + 0.01)) {
+                tAmt = tot - other;
+                inv.treatmentCharge = tAmt;
+            }
+
+            const nos = parseInt(inv.treatmentNos || inv.nos, 10) || 1;
+            if (!inv.treatmentRate || parseFloat(inv.treatmentRate) <= 0) {
+                inv.treatmentRate = nos > 0 ? (tAmt / nos) : tAmt;
+            }
+            if (!inv.treatment || inv.treatment.trim() === '' || inv.treatment === '-') {
+                inv.treatment = (matchedVisit && (matchedVisit.treatment || matchedVisit.diseaseHistory)) || p.diseaseHistory || 'Dental Treatment & Procedure';
+            }
+            if (!inv.opNumber && p.opNumber) inv.opNumber = p.opNumber;
+            if (!inv.patientName && p.fullName) inv.patientName = p.fullName;
+            if (!inv.phone && p.phone) inv.phone = p.phone;
+        });
+
+        p.invoices.sort((a, b) => (b.invoiceNo || '').localeCompare(a.invoiceNo || ''));
+        p.visits.sort((a, b) => (b.timestamp || b.date || '').localeCompare(a.timestamp || a.date || ''));
+
+        return p;
+    }
+
     // Fetch Patients
     async function fetchRegisteredPatients() {
         if (patientsLoader) patientsLoader.style.display = 'block';
@@ -155,7 +278,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (result && result.status === 'success' && Array.isArray(result.data)) {
-                allPatientsList = result.data;
+                allPatientsList = result.data.map(p => enrichSinglePatient(p));
+                allPatientsList.sort((a, b) => (b.latestVisit || '').localeCompare(a.latestVisit || ''));
                 updateStatsBadges(allPatientsList, result.totalVisits);
                 renderFilteredPatients();
                 return;
@@ -552,19 +676,51 @@ document.addEventListener('DOMContentLoaded', () => {
         const latestInvNo = invoices.length > 0 ? invoices[0].invoiceNo : (patient.visits && patient.visits.length > 0 ? (patient.visits[0].invoiceNo || '') : '');
         const modalInvRedirectUrl = `search.html?phone=${encodeURIComponent(patient.phone || '')}&name=${encodeURIComponent(patient.fullName || '')}&op=${encodeURIComponent(patient.opNumber || '')}&invoice=${encodeURIComponent(latestInvNo)}&openInvoice=true`;
 
+        let invCardsHtml = '';
+        if (invoices.length > 0) {
+            invCardsHtml = `
+                <div style="margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+                    ${invoices.map(inv => {
+                        const invTot = parseFloat(inv.totalAmount) || 0;
+                        const invUrl = `search.html?phone=${encodeURIComponent(patient.phone || '')}&name=${encodeURIComponent(patient.fullName || '')}&op=${encodeURIComponent(patient.opNumber || '')}&invoice=${encodeURIComponent(inv.invoiceNo || '')}&openInvoice=true`;
+                        return `
+                            <div style="display: flex; justify-content: space-between; align-items: center; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.6rem 0.8rem;">
+                                <div>
+                                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                                        <span style="font-family: monospace; font-weight: 700; font-size: 0.85rem; color: #1e3a8a;">${escapeHtml(inv.invoiceNo || 'INV')}</span>
+                                        <span style="font-size: 0.78rem; color: #64748b;">• ${escapeHtml(inv.date || (inv.timestamp || '').split(' ')[0] || '')}</span>
+                                    </div>
+                                    ${inv.treatment ? `<div style="font-size: 0.8rem; color: #0f766e; font-weight: 600; margin-top: 2px;">${escapeHtml(inv.treatment)}</div>` : ''}
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                                    <strong style="color: #0f766e; font-size: 0.95rem;">₹${invTot.toFixed(2)}</strong>
+                                    <a href="${invUrl}" class="mini-btn" style="background: #0d9488; color: white; padding: 4px 10px; font-size: 0.78rem; border-radius: 6px; text-decoration: none; font-weight: 700;">
+                                        Show Invoice
+                                    </a>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
         modalBillingSummary.innerHTML = `
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.9rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
-                <div>
-                    <span style="font-size: 0.85rem; color: #64748b; display: block;">Total Amount Billed</span>
-                    <strong style="font-size: 1.15rem; color: #0f766e;">₹${totalBilled.toFixed(2)}</strong>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.9rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+                    <div>
+                        <span style="font-size: 0.85rem; color: #64748b; display: block;">Total Amount Billed</span>
+                        <strong style="font-size: 1.15rem; color: #0f766e;">₹${totalBilled.toFixed(2)}</strong>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.85rem; color: #64748b; display: block;">Recorded Invoices</span>
+                        <strong style="font-size: 1.15rem; color: #1e3a8a;">${invoices.length}</strong>
+                    </div>
+                    <a href="${modalInvRedirectUrl}" class="mini-btn" style="background: #0d9488; color: white; font-weight: 700; padding: 0.5rem 1rem;">
+                        <span>🧾</span> Latest Invoice
+                    </a>
                 </div>
-                <div>
-                    <span style="font-size: 0.85rem; color: #64748b; display: block;">Recorded Invoices</span>
-                    <strong style="font-size: 1.15rem; color: #1e3a8a;">${invoices.length}</strong>
-                </div>
-                <a href="${modalInvRedirectUrl}" class="mini-btn" style="background: #0d9488; color: white; font-weight: 700; padding: 0.5rem 1rem;">
-                    <span>🧾</span> View Hospital Invoice
-                </a>
+                ${invCardsHtml}
             </div>
         `;
 

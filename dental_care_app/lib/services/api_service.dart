@@ -738,8 +738,41 @@ class ApiService {
             }
 
             final rawTot = double.tryParse(rawTotal.replaceAll(RegExp(r'[^0-9.]'), ''));
-            final total = (rawTot != null && rawTot > 0) ? rawTot : (consult + xray + pharm + tCharge + customs.fold<double>(0.0, (s, c) => s + c.amount));
+            final customSum = customs.fold<double>(0.0, (s, c) => s + c.amount);
+            final total = (rawTot != null && rawTot > 0) ? rawTot : (consult + xray + pharm + tCharge + customSum);
             final payMode = rawPayMode.isNotEmpty ? rawPayMode : 'Cash';
+
+            final knownCharges = consult + xray + pharm + customSum;
+            double resolvedTreatmentCharge = tCharge;
+            if (resolvedTreatmentCharge <= 0 && total > knownCharges) {
+              resolvedTreatmentCharge = total - knownCharges;
+            }
+            String resolvedTreatment = rawTreatment;
+            if (resolvedTreatment.isEmpty) {
+              final cleanIId = invId.replaceAll(RegExp(r'^INV-'), '').toLowerCase().trim();
+              for (final p in patients) {
+                for (final v in p.visits) {
+                  final cleanVId = v.invoiceId.replaceAll(RegExp(r'^INV-'), '').toLowerCase().trim();
+                  if (cleanVId.isNotEmpty && cleanIId.isNotEmpty && (cleanVId == cleanIId || cleanIId.contains(cleanVId) || cleanVId.contains(cleanIId))) {
+                    if (v.notes.isNotEmpty) resolvedTreatment = v.notes;
+                    break;
+                  }
+                }
+                if (resolvedTreatment.isNotEmpty) break;
+              }
+              if (resolvedTreatment.isEmpty) {
+                final pMatch = patients.where((p) =>
+                    (p.name.trim().toLowerCase() == pName.trim().toLowerCase()) ||
+                    (phone.isNotEmpty && p.phone == phone));
+                if (pMatch.isNotEmpty && pMatch.first.diseaseHistory.isNotEmpty) {
+                  resolvedTreatment = pMatch.first.diseaseHistory;
+                }
+              }
+            }
+            if (resolvedTreatment.isEmpty) {
+              resolvedTreatment = 'Dental Treatment & Procedure';
+            }
+            final resolvedRate = tRate > 0 ? tRate : (tNos > 0 ? (resolvedTreatmentCharge / tNos) : resolvedTreatmentCharge);
 
             final inv = Invoice(
               id: invId,
@@ -752,10 +785,10 @@ class ApiService {
               consultationCharge: consult,
               xrayCharge: xray,
               pharmacyCharge: pharm,
-              treatmentCharge: tCharge,
-              treatment: rawTreatment,
+              treatmentCharge: resolvedTreatmentCharge,
+              treatment: resolvedTreatment,
               treatmentNos: tNos > 0 ? tNos : 1,
-              treatmentRate: tRate,
+              treatmentRate: resolvedRate,
               customCharges: customs,
               totalAmount: total,
               paymentMode: payMode,
