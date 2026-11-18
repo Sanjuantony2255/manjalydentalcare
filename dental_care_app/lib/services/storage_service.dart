@@ -401,23 +401,29 @@ class StorageService extends ChangeNotifier {
 
   Future<void> savePatient(Patient patient) async {
     final pDigits = patient.phone.replaceAll(RegExp(r'\D'), '');
+    final p10 = pDigits.length >= 10 ? pDigits.substring(pDigits.length - 10) : '';
     final pName = patient.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
     final pOp = patient.opNumber.trim().toLowerCase();
 
     final idx = _patients.indexWhere((p) {
       if (p.id == patient.id) return true;
       final cDigits = p.phone.replaceAll(RegExp(r'\D'), '');
+      final c10 = cDigits.length >= 10 ? cDigits.substring(cDigits.length - 10) : '';
       final cName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
       final cOp = p.opNumber.trim().toLowerCase();
 
       final opMatch = pOp.isNotEmpty && cOp.isNotEmpty && pOp == cOp;
       if (opMatch) return true;
 
-      final phoneMatch = pDigits.isNotEmpty && cDigits.isNotEmpty &&
-          (pDigits == cDigits || (pDigits.length >= 10 && cDigits.length >= 10 && pDigits.endsWith(cDigits.substring(cDigits.length - 10))));
-      final nameMatch = pName.isNotEmpty && cName.isNotEmpty && pName == cName;
+      final phoneMatch = (p10.isNotEmpty && c10.isNotEmpty && p10 == c10) ||
+          (pDigits.isNotEmpty && cDigits.isNotEmpty && pDigits == cDigits);
+      if (phoneMatch) {
+        if (pName.isEmpty || cName.isEmpty || pName == cName || pName.contains(cName) || cName.contains(pName)) {
+          return true;
+        }
+      }
 
-      return phoneMatch && nameMatch;
+      return false;
     });
     if (idx >= 0) {
       final existing = _patients[idx];

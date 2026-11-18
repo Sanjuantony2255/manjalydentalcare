@@ -576,10 +576,16 @@ function handlePatientRegistration(ss, data) {
 
         if (!rowOp) continue;
 
-        // Match the registered identity first so a stale submitted OP cannot change it.
+        // Match by OP directly
+        if (inputOp && rowOp && inputOp.toLowerCase() === rowOp.toLowerCase()) {
+          existingOpNumber = rowOp;
+          break;
+        }
+
+        // Match by phone: 10-digit match is primary patient identity
         var phoneMatches = inputPhoneDigits && rowPhoneDigits && (inputPhoneDigits === rowPhoneDigits || (inputPhoneDigits.length >= 10 && rowPhoneDigits.length >= 10 && inputPhoneDigits.slice(-10) === rowPhoneDigits.slice(-10)));
-        var nameMatches = inputName && rowName && inputName === rowName;
-        if (phoneMatches && nameMatches) {
+        var nameMatches = inputName && rowName && (inputName === rowName || inputName.indexOf(rowName) !== -1 || rowName.indexOf(inputName) !== -1);
+        if (phoneMatches && (nameMatches || !inputName || !rowName)) {
           existingOpNumber = rowOp;
           break;
         }
@@ -587,7 +593,7 @@ function handlePatientRegistration(ss, data) {
     }
   }
 
-  // OP Number Resolution: preserve the registered OP for a name and phone match.
+  // OP Number Resolution: preserve the established OP for returning patient
   if (existingOpNumber) {
     data.opNumber = existingOpNumber;
   } else if (inputOp && inputOp.length > 0) {
@@ -1817,6 +1823,21 @@ function handleSearchPatient(ss, params) {
     Logger.log("Invoices sheet read notice: " + invReadErr.toString());
   }
 
+  // Unify OP number across all visits and invoices for this patient
+  var masterOp = '';
+  for (var mv = 0; mv < visits.length; mv++) {
+    if (visits[mv].opNumber) { masterOp = visits[mv].opNumber; break; }
+  }
+  if (!masterOp) {
+    for (var mi = 0; mi < invoices.length; mi++) {
+      if (invoices[mi].opNumber) { masterOp = invoices[mi].opNumber; break; }
+    }
+  }
+  if (masterOp) {
+    for (var u = 0; u < visits.length; u++) { visits[u].opNumber = masterOp; }
+    for (var w = 0; w < invoices.length; w++) { invoices[w].opNumber = masterOp; }
+  }
+
   visits.reverse();
   invoices.reverse();
 
@@ -2019,11 +2040,11 @@ function handleGetPatients(ss) {
           var pName = (p.fullName || '').toLowerCase().replace(/\s+/g, ' ').trim();
           var pDigits = extractDigits(p.phone);
 
-          var nameMatch = cleanName && pName && (cleanName === pName);
+          var nameMatch = cleanName && pName && (cleanName === pName || cleanName.indexOf(pName) !== -1 || pName.indexOf(cleanName) !== -1);
           var phoneMatch = phoneDigits && pDigits && (phoneDigits === pDigits || (phoneDigits.length >= 10 && pDigits.length >= 10 && phoneDigits.slice(-10) === pDigits.slice(-10)));
           var opMatch = rawOp && p.opNumber && (rawOp.toLowerCase() === p.opNumber.toLowerCase());
 
-          if ((nameMatch && phoneMatch) || opMatch) {
+          if (opMatch || (phoneMatch && (nameMatch || !cleanName || !pName))) {
             existingKey = k;
             break;
           }
@@ -2124,7 +2145,7 @@ function handleGetPatients(ss) {
           if (!p.diseaseHistory && getRowVal(row, colDisease)) p.diseaseHistory = getRowVal(row, colDisease);
           if (doc && (!p.doctorConsulted || p.doctorConsulted === 'Attending Doctor')) p.doctorConsulted = doc;
           
-          if (!visitObj.opNumber && p.opNumber) {
+          if (p.opNumber) {
             visitObj.opNumber = p.opNumber;
           }
           p.visits.push(visitObj);
@@ -2250,7 +2271,7 @@ function handleGetPatients(ss) {
           };
 
           if (invKey && patientsMap[invKey]) {
-            if (!invObj.opNumber && patientsMap[invKey].opNumber) invObj.opNumber = patientsMap[invKey].opNumber;
+            if (patientsMap[invKey].opNumber) invObj.opNumber = patientsMap[invKey].opNumber;
             if (!invObj.address && patientsMap[invKey].address) invObj.address = patientsMap[invKey].address;
             if ((!invObj.treatment || invObj.treatment === 'Dental Treatment & Procedure') && (patientsMap[invKey].diseaseHistory || patientsMap[invKey].medicalHistory)) {
               invObj.treatment = patientsMap[invKey].diseaseHistory || patientsMap[invKey].medicalHistory;
@@ -2258,8 +2279,8 @@ function handleGetPatients(ss) {
             patientsMap[invKey].invoices.push(invObj);
           } else {
             for (var pK in patientsMap) {
-              if ((iDigits && extractDigits(patientsMap[pK].phone) === iDigits) || (invCleanName && patientsMap[pK].fullName.toLowerCase().trim() === invCleanName)) {
-                if (!invObj.opNumber && patientsMap[pK].opNumber) invObj.opNumber = patientsMap[pK].opNumber;
+              if ((iDigits && extractDigits(patientsMap[pK].phone) === iDigits) || (invCleanName && (patientsMap[pK].fullName.toLowerCase().trim() === invCleanName || invCleanName.indexOf(patientsMap[pK].fullName.toLowerCase().trim()) !== -1 || patientsMap[pK].fullName.toLowerCase().trim().indexOf(invCleanName) !== -1))) {
+                if (patientsMap[pK].opNumber) invObj.opNumber = patientsMap[pK].opNumber;
                 if (!invObj.address && patientsMap[pK].address) invObj.address = patientsMap[pK].address;
                 if ((!invObj.treatment || invObj.treatment === 'Dental Treatment & Procedure') && (patientsMap[pK].diseaseHistory || patientsMap[pK].medicalHistory)) {
                   invObj.treatment = patientsMap[pK].diseaseHistory || patientsMap[pK].medicalHistory;

@@ -319,11 +319,11 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const vOp = (v.opNumber || '').toLowerCase().trim();
                                     const pOp = (p.opNumber || '').toLowerCase().trim();
 
-                                    const nameMatch = cleanName && pName && (cleanName === pName);
+                                    const nameMatch = cleanName && pName && (cleanName === pName || cleanName.includes(pName) || pName.includes(cleanName));
                                     const phoneMatch = digits && pDigits && (digits === pDigits || (digits.length >= 10 && pDigits.length >= 10 && digits.slice(-10) === pDigits.slice(-10)));
                                     const opMatch = vOp && pOp && (vOp === pOp);
 
-                                    if ((nameMatch && phoneMatch) || opMatch) {
+                                    if (opMatch || (phoneMatch && (nameMatch || !cleanName || !pName))) {
                                         existingKey = k;
                                         break;
                                     }
@@ -365,6 +365,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 } else {
                                     const exist = mergedMap[key];
                                     if (!exist.opNumber && v.opNumber) exist.opNumber = v.opNumber;
+                                    if (exist.opNumber) v.opNumber = exist.opNumber;
                                     const alreadyHasVisit = exist.visits.some(ev => {
                                         if (ev.invoiceNo && v.invoiceNo && ev.invoiceNo !== 'INV-SHEET' && v.invoiceNo !== 'INV-SHEET') {
                                             return ev.invoiceNo.trim().toLowerCase() === v.invoiceNo.trim().toLowerCase();
@@ -393,7 +394,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const pDigits = (p.phone || '').toString().replace(/\D/g, '');
                                     if (pName === invName || (digits && pDigits === digits)) {
                                         const hasInv = p.invoices.some(ei => ei.invoiceNo === inv.invoiceNo);
-                                        if (!hasInv) p.invoices.push(inv);
+                                        if (!hasInv) {
+                                            if (p.opNumber) inv.opNumber = p.opNumber;
+                                            p.invoices.push(inv);
+                                        }
                                         break;
                                     }
                                 }

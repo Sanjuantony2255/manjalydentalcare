@@ -336,7 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 address: p.address || p.email,
                                 dob: p.dob,
                                 age: p.age,
-                                opNumber: v.opNumber || p.opNumber,
+                                opNumber: p.opNumber || v.opNumber,
                                 gender: p.gender
                             });
                         }
@@ -466,7 +466,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         address: p.address || p.email,
                                         dob: p.dob,
                                         age: p.age,
-                                        opNumber: v.opNumber || p.opNumber,
+                                        opNumber: p.opNumber || v.opNumber,
                                         gender: p.gender
                                     });
                                 }
@@ -803,7 +803,9 @@ document.addEventListener('DOMContentLoaded', () => {
             heroBookAptBtn.href = `appointments.html?name=${encodeURIComponent(pName)}&phone=${encodeURIComponent(phoneClean)}`;
         }
         if (heroAddRevisitBtn) {
-            heroAddRevisitBtn.href = `index.html?phone=${encodeURIComponent(phoneClean)}`;
+            const opVal = currentPatientProfile && currentPatientProfile.opNumber ? currentPatientProfile.opNumber : (latestInfo && latestInfo.opNumber ? latestInfo.opNumber : '');
+            const nameVal = currentPatientProfile && (currentPatientProfile.fullName || currentPatientProfile.name) ? (currentPatientProfile.fullName || currentPatientProfile.name) : pName;
+            heroAddRevisitBtn.href = `index.html?phone=${encodeURIComponent(phoneClean)}&op=${encodeURIComponent(opVal)}&name=${encodeURIComponent(nameVal)}`;
         }
 
         // Update Invoices and Visits header badges

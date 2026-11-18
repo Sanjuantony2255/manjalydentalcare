@@ -139,6 +139,58 @@ void main() {
       expect(storage.inventory.isEmpty, true);
     });
 
+    test('Revisit for registered patient preserves the single permanent OP number', () async {
+      final storage = StorageService();
+      await storage.initialize();
+
+      // 1. Initial Registration
+      final patient = Patient(
+        id: 'PAT-OP-401',
+        opNumber: 'OP-401',
+        name: 'Vishnu',
+        phone: '8921399906',
+        gender: 'Male',
+        doctor: 'Dr. Jeswin Jose BDS (Doctor)',
+        registrationDate: '2026-11-17',
+        medicalHistory: 'None',
+        totalVisits: 1,
+        totalBilled: 850.0,
+      );
+      await storage.savePatient(patient);
+
+      expect(storage.patients.length, 1);
+      expect(storage.patients.first.opNumber, 'OP-401');
+
+      // 2. Revisit with same phone number and slight name variation
+      final revisitPatient = Patient(
+        id: 'PAT-TEMP-999',
+        opNumber: 'OP-DIFF-999', // Even if submitted with different OP
+        name: 'Vishnu K',
+        phone: '8921399906',
+        gender: 'Male',
+        doctor: 'Dr. Jeswin Jose BDS (Doctor)',
+        registrationDate: '2026-11-18',
+        medicalHistory: 'None',
+        totalVisits: 1,
+        totalBilled: 500.0,
+        visits: [
+          VisitRecord(
+            date: '2026-11-18',
+            doctor: 'Dr. Jeswin Jose BDS (Doctor)',
+            notes: 'Follow-up consultation',
+            invoiceId: 'INV-2026-111801',
+            amount: 500.0,
+          ),
+        ],
+      );
+      await storage.savePatient(revisitPatient);
+
+      // Must NOT create duplicate patient, and must PRESERVE OP-401
+      expect(storage.patients.length, 1);
+      expect(storage.patients.first.opNumber, 'OP-401');
+      expect(storage.patients.first.totalVisits, 2);
+    });
+
     test('Search matching finds records by name, normalized phone, and OP number', () async {
       final storage = StorageService();
       await storage.initialize();

@@ -349,9 +349,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (treatmentInput) {
         function setTreatmentValue(val) {
+            if (!val) return;
             treatmentInput.value = val;
             if (treatmentSelect) treatmentSelect.value = val;
             if (customTreatmentInput) customTreatmentInput.value = val;
+            if (chargeOptionSelect) chargeOptionSelect.value = val;
+
+            const suggestedFee = TREATMENT_SUGGESTED_FEES[val];
+            if (suggestedFee !== undefined && treatmentChargeInput) {
+                treatmentChargeInput.value = suggestedFee;
+                calculateTotal();
+            }
+
             if (regQuickTreatments) {
                 regQuickTreatments.querySelectorAll('.treatment-chip').forEach(c => {
                     c.classList.toggle('active', c.getAttribute('data-treatment') === val);
@@ -538,12 +547,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function checkAndFillExistingOpNumber() {
-        if (!fullNameInput || !phoneInput || !opNumberInput) return;
-        const nameVal = fullNameInput.value.trim().toLowerCase().replace(/\s+/g, ' ');
+        if (!phoneInput || !opNumberInput) return;
+        const nameVal = fullNameInput ? fullNameInput.value.trim().toLowerCase().replace(/\s+/g, ' ') : '';
         const phoneVal = phoneInput.value.trim();
         const phoneDigits = phoneVal.replace(/\D/g, '');
+        const phone10 = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : '';
 
-        if (nameVal.length < 2 || phoneDigits.length < 10) {
+        if (phone10.length < 10 && nameVal.length < 2 && !opNumberInput.value) {
             clearAlreadyRegisteredValidation();
             return;
         }
@@ -552,10 +562,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!Array.isArray(list)) return null;
             return list.find(p => {
                 const cDigits = (p.phone || '').toString().replace(/\D/g, '');
+                const c10 = cDigits.length >= 10 ? cDigits.slice(-10) : '';
                 const cName = (p.fullName || p.patientName || p.name || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
-                const phoneMatch = cDigits && (cDigits === phoneDigits || (cDigits.length >= 10 && phoneDigits.length >= 10 && cDigits.slice(-10) === phoneDigits.slice(-10)));
-                const nameMatch = cName === nameVal;
-                return phoneMatch && nameMatch && (p.opNumber);
+                const cOp = (p.opNumber || '').toString().trim();
+
+                if (phone10.length >= 10 && c10.length >= 10 && phone10 === c10) {
+                    if (nameVal.length >= 2) {
+                        return cName === nameVal || cName.includes(nameVal) || nameVal.includes(cName);
+                    }
+                    return true;
+                }
+                if (opNumberInput.value && cOp && cOp.toLowerCase() === opNumberInput.value.trim().toLowerCase()) {
+                    return true;
+                }
+                if (nameVal.length >= 3 && cName === nameVal && phoneDigits.length >= 6 && cDigits.includes(phoneDigits)) {
+                    return true;
+                }
+                return false;
             });
         };
 
@@ -567,8 +590,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const match = matchPatient(list);
                 if (match && match.opNumber) {
                     setAlreadyRegisteredValidation(match.opNumber);
+                    if (fullNameInput && !fullNameInput.value && (match.fullName || match.patientName || match.name)) {
+                        fullNameInput.value = match.fullName || match.patientName || match.name;
+                    }
                     if (addressInput && !addressInput.value && (match.address || match.email)) addressInput.value = match.address || match.email;
-                    if (ageInput && !ageInput.value && match.age) ageInput.value = match.age;
+                    if (ageInput && !ageInput.value && (match.age || match.dob)) ageInput.value = match.age || (match.dob ? match.dob.toString().replace(/[^0-9]/g, '') : '');
                     if (genderSelect && (!genderSelect.value || genderSelect.value === '') && match.gender) genderSelect.value = match.gender;
                     showToast('Already Registered Patient', `Recognized patient! Preserving OP: ${match.opNumber}`, 'info');
                     return;
@@ -577,7 +603,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {}
 
         // 2. Query Google Sheet backend / Search endpoint
-        if (isOpLookupInProgress) return;
+        if (isOpLookupInProgress || phone10.length < 10) return;
         isOpLookupInProgress = true;
         try {
             const res = await fetch(`${SCRIPT_URL}?action=search&query=${encodeURIComponent(phoneDigits)}`);
@@ -586,8 +612,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const match = matchPatient(json.data);
                 if (match && match.opNumber) {
                     setAlreadyRegisteredValidation(match.opNumber);
+                    if (fullNameInput && !fullNameInput.value && (match.fullName || match.patientName || match.name)) {
+                        fullNameInput.value = match.fullName || match.patientName || match.name;
+                    }
                     if (addressInput && !addressInput.value && (match.address || match.email)) addressInput.value = match.address || match.email;
-                    if (ageInput && !ageInput.value && (match.age || match.dob)) ageInput.value = match.age || (match.dob ? match.dob.replace(/[^0-9]/g, '') : '');
+                    if (ageInput && !ageInput.value && (match.age || match.dob)) ageInput.value = match.age || (match.dob ? match.dob.toString().replace(/[^0-9]/g, '') : '');
                     if (genderSelect && (!genderSelect.value || genderSelect.value === '') && match.gender) genderSelect.value = match.gender;
                     showToast('Already Registered Patient', `Recognized patient! Preserving OP: ${match.opNumber}`, 'info');
 
@@ -612,24 +641,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (fullNameInput) {
         fullNameInput.addEventListener('input', () => {
-            if (phoneInput && phoneInput.value.replace(/\D/g, '').length >= 10 && fullNameInput.value.trim().length >= 2) {
+            if (phoneInput && phoneInput.value.replace(/\D/g, '').length >= 10) {
                 checkAndFillExistingOpNumber();
-            } else {
-                clearAlreadyRegisteredValidation();
             }
         });
         fullNameInput.addEventListener('blur', checkAndFillExistingOpNumber);
     }
     if (phoneInput) {
         phoneInput.addEventListener('input', () => {
-            if (phoneInput.value.replace(/\D/g, '').length >= 10 && fullNameInput && fullNameInput.value.trim().length >= 2) {
+            if (phoneInput.value.replace(/\D/g, '').length >= 10) {
                 checkAndFillExistingOpNumber();
-            } else {
-                clearAlreadyRegisteredValidation();
             }
         });
         phoneInput.addEventListener('blur', checkAndFillExistingOpNumber);
     }
+
+    // Auto-fill from URL query parameters (e.g. from Revisit click on Search/Patients)
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlPhone = urlParams.get('phone') || '';
+        const urlOp = urlParams.get('op') || urlParams.get('opNumber') || '';
+        const urlName = urlParams.get('name') || '';
+        if (urlPhone && phoneInput) phoneInput.value = urlPhone;
+        if (urlName && fullNameInput) fullNameInput.value = urlName;
+        if (urlOp && opNumberInput) {
+            setAlreadyRegisteredValidation(urlOp);
+        }
+        if (urlPhone || urlName || urlOp) {
+            setTimeout(checkAndFillExistingOpNumber, 150);
+        }
+    } catch (e) {}
 
     // 6. In-Page Celebratory Success Banner Handler
     function showSuccessBanner(patientData, invData) {
@@ -728,20 +769,33 @@ document.addEventListener('DOMContentLoaded', () => {
         // When clicking Submit Registration / Revisit, consider person with same phone & name as the same patient and give already registered OP number
         const rawName = (data.fullName || (fullNameInput ? fullNameInput.value : '') || '').trim().toLowerCase().replace(/\s+/g, ' ');
         const rawPhoneDigits = (data.phone || (phoneInput ? phoneInput.value : '') || '').replace(/\D/g, '');
+        const rawPhone10 = rawPhoneDigits.length >= 10 ? rawPhoneDigits.slice(-10) : '';
         let existingMatchOp = null;
 
-        // Match name and phone first so a stale OP in the form cannot replace the patient's record.
-        if (rawName.length >= 2 && rawPhoneDigits.length >= 10) {
+        // Match existing patient by phone (10 digits) or name to preserve their master OP number
+        if (rawPhone10.length >= 10 || rawName.length >= 2) {
             try {
                 const rawCached = localStorage.getItem('dental_cached_patients');
                 if (rawCached) {
                     const list = JSON.parse(rawCached);
                     const found = list.find(p => {
                         const cDigits = (p.phone || '').toString().replace(/\D/g, '');
+                        const c10 = cDigits.length >= 10 ? cDigits.slice(-10) : '';
                         const cName = (p.fullName || p.patientName || p.name || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
-                        const phoneMatch = cDigits && (cDigits === rawPhoneDigits || (cDigits.length >= 10 && rawPhoneDigits.length >= 10 && cDigits.slice(-10) === rawPhoneDigits.slice(-10)));
-                        const nameMatch = cName === rawName;
-                        return phoneMatch && nameMatch && p.opNumber;
+                        const cOp = (p.opNumber || '').toString().trim();
+                        if (rawPhone10.length >= 10 && c10.length >= 10 && rawPhone10 === c10) {
+                            if (rawName.length >= 2) {
+                                return cName === rawName || cName.includes(rawName) || rawName.includes(cName);
+                            }
+                            return true;
+                        }
+                        if (opNumberInput && opNumberInput.value && cOp && cOp.toLowerCase() === opNumberInput.value.trim().toLowerCase()) {
+                            return true;
+                        }
+                        if (rawName.length >= 3 && cName === rawName) {
+                            return true;
+                        }
+                        return false;
                     });
                     if (found && found.opNumber) {
                         existingMatchOp = found.opNumber;

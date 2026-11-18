@@ -165,45 +165,38 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   void _checkExistingPatient() {
     final cleanName = _nameController.text.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
     final qDigits = _phoneController.text.replaceAll(RegExp(r'\D'), '');
-    if (qDigits.length >= 10 && cleanName.length >= 2) {
-      final existing = widget.storage.patients.firstWhere(
-        (p) {
-          final pDigits = p.phone.replaceAll(RegExp(r'\D'), '');
-          final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-          final phoneMatch = pDigits.isNotEmpty &&
-              (pDigits == qDigits || (pDigits.length >= 10 && qDigits.length >= 10 && pDigits.endsWith(qDigits.substring(qDigits.length - 10))));
-          final nameMatch = pName.isNotEmpty && pName == cleanName;
-          return phoneMatch && nameMatch;
-        },
-        orElse: () => Patient(id: '', opNumber: '', name: '', phone: '', gender: '', doctor: '', registrationDate: ''),
-      );
-      if (existing.id.isNotEmpty) {
-        final op = existing.opNumber.isNotEmpty ? existing.opNumber : 'OP-${existing.id.replaceAll(RegExp(r'\D'), '')}';
-        setState(() {
-          _isAlreadyRegistered = true;
-          _suggestedOpNumber = op;
-          _suggestedPatientName = existing.name;
-          _opController.text = op;
-        });
-        if (!_isRevisit) {
-          _populatePatientData(existing);
-        }
-        return;
-      }
-    } else if (qDigits.length >= 10 && cleanName.isEmpty) {
+    final q10 = qDigits.length >= 10 ? qDigits.substring(qDigits.length - 10) : '';
+
+    if (q10.isNotEmpty) {
       final matches = widget.storage.patients.where((p) {
         final pDigits = p.phone.replaceAll(RegExp(r'\D'), '');
-        return pDigits.isNotEmpty && (pDigits == qDigits || (pDigits.length >= 10 && qDigits.length >= 10 && pDigits.endsWith(qDigits.substring(qDigits.length - 10))));
+        final p10 = pDigits.length >= 10 ? pDigits.substring(pDigits.length - 10) : '';
+        return (p10.isNotEmpty && p10 == q10) || (pDigits.isNotEmpty && pDigits == qDigits);
       }).toList();
-      if (matches.length == 1 && !_isRevisit) {
-        final p = matches.first;
-        final op = p.opNumber.isNotEmpty ? p.opNumber : 'OP-${p.id.replaceAll(RegExp(r'\D'), '')}';
+
+      if (matches.isNotEmpty) {
+        Patient matched = matches.first;
+        if (cleanName.length >= 2 && matches.length > 1) {
+          final exactOrSub = matches.firstWhere(
+            (p) {
+              final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+              return pName == cleanName || pName.contains(cleanName) || cleanName.contains(pName);
+            },
+            orElse: () => matches.first,
+          );
+          matched = exactOrSub;
+        }
+
+        final op = matched.opNumber.isNotEmpty ? matched.opNumber : 'OP-${matched.id.replaceAll(RegExp(r'\D'), '')}';
         setState(() {
           _isAlreadyRegistered = true;
           _suggestedOpNumber = op;
-          _suggestedPatientName = p.name;
+          _suggestedPatientName = matched.name;
+          _opController.text = op;
         });
-        _populatePatientData(p);
+        if (_nameController.text.trim().isEmpty) {
+          _populatePatientData(matched);
+        }
         return;
       }
     }
@@ -486,6 +479,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                   Navigator.pop(ctx);
                                   setState(() {
                                     _treatmentController.text = treatment;
+                                    _selectedChargeDropdown = treatment;
+                                    if (kTreatmentSuggestedCharges.containsKey(treatment)) {
+                                      _treatmentChargeController.text =
+                                          kTreatmentSuggestedCharges[treatment]!.toStringAsFixed(0);
+                                    }
                                   });
                                 },
                               );
@@ -514,26 +512,39 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
     final cleanName = _nameController.text.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
     final qDigits = _phoneController.text.replaceAll(RegExp(r'\D'), '');
+    final q10 = qDigits.length >= 10 ? qDigits.substring(qDigits.length - 10) : '';
     final currentOp = _opController.text.trim();
 
-    // Match name and phone before considering the OP currently in the form.
-    final existingByIdentity = widget.storage.patients.firstWhere(
-      (p) {
+    // Match patient by phone (last 10 digits), or OP number, preserving their single permanent OP
+    Patient existing = Patient(id: '', opNumber: '', name: '', phone: '', gender: '', doctor: '', registrationDate: '');
+    if (q10.isNotEmpty) {
+      final phoneMatches = widget.storage.patients.where((p) {
         final pDigits = p.phone.replaceAll(RegExp(r'\D'), '');
-        final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-        final phoneMatch = pDigits.isNotEmpty && qDigits.isNotEmpty &&
-            (pDigits == qDigits || (pDigits.length >= 10 && qDigits.length >= 10 && pDigits.endsWith(qDigits.substring(qDigits.length - 10))));
-        final nameMatch = pName.isNotEmpty && cleanName.isNotEmpty && pName == cleanName;
-        return phoneMatch && nameMatch;
-      },
-      orElse: () => Patient(id: '', opNumber: '', name: '', phone: '', gender: '', doctor: '', registrationDate: ''),
-    );
-    final existing = existingByIdentity.id.isNotEmpty
-        ? existingByIdentity
-        : widget.storage.patients.firstWhere(
-            (p) => currentOp.isNotEmpty && p.opNumber.trim().toLowerCase() == currentOp.toLowerCase(),
-            orElse: () => Patient(id: '', opNumber: '', name: '', phone: '', gender: '', doctor: '', registrationDate: ''),
+        final p10 = pDigits.length >= 10 ? pDigits.substring(pDigits.length - 10) : '';
+        return (p10.isNotEmpty && p10 == q10) || (pDigits.isNotEmpty && pDigits == qDigits);
+      }).toList();
+
+      if (phoneMatches.isNotEmpty) {
+        if (phoneMatches.length == 1) {
+          existing = phoneMatches.first;
+        } else {
+          existing = phoneMatches.firstWhere(
+            (p) {
+              final pName = p.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+              return pName == cleanName || pName.contains(cleanName) || cleanName.contains(pName);
+            },
+            orElse: () => phoneMatches.first,
           );
+        }
+      }
+    }
+
+    if (existing.id.isEmpty && currentOp.isNotEmpty) {
+      existing = widget.storage.patients.firstWhere(
+        (p) => p.opNumber.trim().toLowerCase() == currentOp.toLowerCase(),
+        orElse: () => Patient(id: '', opNumber: '', name: '', phone: '', gender: '', doctor: '', registrationDate: ''),
+      );
+    }
 
     String opNumber = _opController.text.trim();
     if (existing.id.isNotEmpty) {
@@ -1136,7 +1147,16 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                                 label: Text(t, style: TextStyle(fontSize: 11, fontWeight: isSel ? FontWeight.w700 : FontWeight.w500, color: isSel ? AppTheme.primaryDark : const Color(0xFF334155))),
                                 backgroundColor: isSel ? AppTheme.primarySubtle : const Color(0xFFF1F5F9),
                                 side: BorderSide(color: isSel ? AppTheme.primaryTeal : const Color(0xFFCBD5E1)),
-                                onPressed: () => setState(() => _treatmentController.text = t),
+                                onPressed: () {
+                                  setState(() {
+                                    _treatmentController.text = t;
+                                    _selectedChargeDropdown = t;
+                                    if (kTreatmentSuggestedCharges.containsKey(t)) {
+                                      _treatmentChargeController.text =
+                                          kTreatmentSuggestedCharges[t]!.toStringAsFixed(0);
+                                    }
+                                  });
+                                },
                               ),
                             );
                           }).toList(),
